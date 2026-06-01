@@ -260,6 +260,26 @@ def run_backtest():
     df.to_csv("backtest_raw.csv", index=False)
     print("   Raw signals saved to backtest_raw.csv")
 
+    # Send results to Telegram
+    try:
+        from alerts import send_alert
+        msg = "📊 <b>BACKTEST RESULTS — 2yr 4H</b>\n\n"
+        msg += "<pre>"
+        msg += f"{'Filter':<35} {'Sig':>4} {'WR3':>6} {'WR5':>6} {'WR10':>6}\n"
+        msg += "-"*62 + "\n"
+        for _, row in summary.iterrows():
+            msg += f"{row['Filter']:<35} {str(row['Signals']):>4} {str(row['WR_3c']):>6} {str(row['WR_5c']):>6} {str(row['WR_10c']):>6}\n"
+        msg += "</pre>"
+        if ticker_rows:
+            msg += "\n<b>Best tickers (Filter 4):</b>\n<pre>"
+            for r in ticker_rows[:10]:
+                msg += f"{r['Ticker']:<6} {r['Signals']:>2}sig  WR5:{r['WR_5c']}  Avg:{r['Avg_5c']}\n"
+            msg += "</pre>"
+        send_alert(msg)
+        print("   Results sent to Telegram ✅")
+    except Exception as e:
+        print(f"   Telegram send failed: {e}")
+
 
 if __name__ == "__main__":
     run_backtest()
