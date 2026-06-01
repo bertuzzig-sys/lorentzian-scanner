@@ -1,36 +1,31 @@
 """
 Lorentzian Classification Backtester
-Tests 4 filter combinations on 2 years of 4H data:
-  1. Lorentzian only
-  2. Lorentzian + Weekly VWAP
-  3. Lorentzian + Weekly VWAP + Volume spike
-  4. Lorentzian + Weekly VWAP + Volume spike + RSI < 70
-
-Results show: signal count, win rate, avg return at 3 / 5 / 10 candles
+Tests 4 filter combinations on 2 years of 4H data.
+Sends results to Telegram when done.
 """
 
 import warnings
 warnings.filterwarnings("ignore")
 
+import time
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from datetime import datetime
 
-# ── Ticker watchlist (liquid, well-known names) ──────────────────────────────
 TICKERS = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
-    "OKLO", "PLTR", "RKLB", "SMR",                      # your speculative names
-    "JPM", "GS", "BAC",                                  # financials
-    "XOM", "CVX",                                        # energy
-    "NFLX", "CRM", "ADBE",                               # tech
-    "SPY", "QQQ",                                        # ETFs as benchmark
+    "OKLO", "PLTR", "RKLB", "SMR",
+    "JPM", "GS", "BAC",
+    "XOM", "CVX",
+    "NFLX", "CRM", "ADBE",
+    "SPY", "QQQ",
 ]
 
-HOLD_CANDLES = [3, 5, 10]   # measure return at N candles after signal
+HOLD_CANDLES = [3, 5, 10]
 
 
-# ── Technical indicators ─────────────────────────────────────────────────────
+# ── Indicators ────────────────────────────────────────────────────────────────
 
 def ema(s, n):
     return s.ewm(span=n, adjust=False).mean()
@@ -95,96 +90,91 @@ def lorentzian_signals(df, neighbors=8, max_bars_back=2000):
     return pd.Series(signals, index=df.index)
 
 def weekly_vwap(df):
-    """Approximate weekly VWAP: cumulative from Monday open, reset each week."""
-    tp  = (df["high"] + df["low"] + df["close"]) / 3
-    vol = df["volume"]
+    tp   = (df["high"] + df["low"] + df["close"]) / 3
+    vol  = df["volume"]
     week = tp.index.to_series().dt.isocalendar().week.values
     year = tp.index.to_series().dt.isocalendar().year.values
     key  = year * 100 + week
     vwap = pd.Series(index=df.index, dtype=float)
-    cum_tp_vol = 0.0
-    cum_vol    = 0.0
-    prev_key   = None
+    cum_tp_vol = cum_vol = 0.0
+    prev_key = None
     for i, idx in enumerate(df.index):
         k = key[i]
         if k != prev_key:
-            cum_tp_vol = 0.0
-            cum_vol    = 0.0
-            prev_key   = k
+            cum_tp_vol = cum_vol = 0.0
+            prev_key = k
         cum_tp_vol += tp.iloc[i] * vol.iloc[i]
         cum_vol    += vol.iloc[i]
         vwap.iloc[i] = cum_tp_vol / cum_vol if cum_vol > 0 else np.nan
     return vwap
 
 
-# ── Backtest engine ───────────────────────────────────────────────────────────
+# ── Download with retry ───────────────────────────────────────────────────────
+
+def download_with_retry(ticker, retries=3):
+    for attempt in range(retries):
+        try:
+            time.sleep(2)   # 2s between every download — avoids rate limit
+            df = yf.download(ticker, period="2y", interval="4h",
+                             progress=False, auto_adjust=True)
+            if df.empty:
+                return None
+            # Flatten MultiIndex columns if present
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns]
+            df.columns = [c.lower() for c in df.columns]
+            return df
+        except Exception as e:
+            wait = 15 * (attempt + 1)
+            print(f"  {ticker} attempt {attempt+1} failed: {e} — waiting {wait}s")
+            time.sleep(wait)
+    return None
+
+
+# ── Per-ticker backtest ───────────────────────────────────────────────────────
 
 def backtest_ticker(ticker):
-    try:
-        df = yf.download(ticker, period="2y", interval="4h",
-                         progress=False, auto_adjust=True)
-        if df.empty or len(df) < 200:
-            return None
-        # Flatten MultiIndex columns if present (newer yfinance)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns]
-        df.columns = [c.lower() for c in df.columns]
+    print(f"  Processing {ticker}...", end=" ", flush=True)
+    df = download_with_retry(ticker)
 
-        sig  = lorentzian_signals(df)
-        rsi_ = rsi(df["close"], 14).fillna(50)
-        wvwap = weekly_vwap(df)
-        vol_ma = df["volume"].rolling(20).mean()
-
-        results = []
-
-        for i in range(50, len(df) - max(HOLD_CANDLES) - 1):
-            # Fresh green flip only
-            if not (sig.iloc[i] == 1 and sig.iloc[i-1] != 1):
-                continue
-
-            entry_price = df["close"].iloc[i]
-            bar_rsi     = rsi_.iloc[i]
-            bar_vwap    = wvwap.iloc[i]
-            bar_vol     = df["volume"].iloc[i]
-            bar_vol_ma  = vol_ma.iloc[i]
-
-            # Filter flags
-            above_vwap  = entry_price > bar_vwap if not np.isnan(bar_vwap) else False
-            vol_spike   = bar_vol > 1.5 * bar_vol_ma if not np.isnan(bar_vol_ma) else False
-            rsi_ok      = bar_rsi < 70
-
-            # Returns at each hold period
-            rets = {}
-            for h in HOLD_CANDLES:
-                exit_price = df["close"].iloc[i + h]
-                rets[h] = (exit_price - entry_price) / entry_price * 100
-
-            results.append({
-                "date":        df.index[i],
-                "above_vwap":  above_vwap,
-                "vol_spike":   vol_spike,
-                "rsi_ok":      rsi_ok,
-                **{f"ret_{h}": rets[h] for h in HOLD_CANDLES},
-            })
-
-        return pd.DataFrame(results) if results else None
-
-    except Exception as e:
-        print(f"  ✗ {ticker}: {e}")
+    if df is None or len(df) < 200:
+        print("skipped (no data)")
         return None
 
+    sig    = lorentzian_signals(df)
+    rsi_   = rsi(df["close"], 14).fillna(50)
+    wvwap  = weekly_vwap(df)
+    vol_ma = df["volume"].rolling(20).mean()
+
+    results = []
+    for i in range(50, len(df) - max(HOLD_CANDLES) - 1):
+        if not (sig.iloc[i] == 1 and sig.iloc[i-1] != 1):
+            continue
+        entry       = df["close"].iloc[i]
+        above_vwap  = entry > wvwap.iloc[i] if not np.isnan(wvwap.iloc[i]) else False
+        vol_spike   = df["volume"].iloc[i] > 1.5 * vol_ma.iloc[i] if not np.isnan(vol_ma.iloc[i]) else False
+        rsi_ok      = rsi_.iloc[i] < 70
+        rets        = {h: (df["close"].iloc[i+h] - entry) / entry * 100 for h in HOLD_CANDLES}
+        results.append({"date": df.index[i], "above_vwap": above_vwap,
+                         "vol_spike": vol_spike, "rsi_ok": rsi_ok,
+                         **{f"ret_{h}": rets[h] for h in HOLD_CANDLES}})
+
+    print(f"{len(results)} signals")
+    return pd.DataFrame(results) if results else None
+
+
+# ── Summary helper ────────────────────────────────────────────────────────────
 
 def summarise(df, label):
     if df is None or df.empty:
-        return {"Filter": label, "Signals": 0, **{f"WR_{h}c": "—" for h in HOLD_CANDLES},
+        return {"Filter": label, "Signals": 0,
+                **{f"WR_{h}c": "—" for h in HOLD_CANDLES},
                 **{f"Avg_{h}c": "—" for h in HOLD_CANDLES}}
     row = {"Filter": label, "Signals": len(df)}
     for h in HOLD_CANDLES:
         col = f"ret_{h}"
-        wr  = (df[col] > 0).mean() * 100
-        avg = df[col].mean()
-        row[f"WR_{h}c"]  = f"{wr:.1f}%"
-        row[f"Avg_{h}c"] = f"{avg:+.2f}%"
+        row[f"WR_{h}c"]  = f"{(df[col] > 0).mean()*100:.1f}%"
+        row[f"Avg_{h}c"] = f"{df[col].mean():+.2f}%"
     return row
 
 
@@ -197,48 +187,39 @@ def run_backtest():
     print("="*60 + "\n")
 
     all_raw = []
-
     for ticker in TICKERS:
-        print(f"  Processing {ticker}...", end=" ", flush=True)
         raw = backtest_ticker(ticker)
         if raw is not None:
             raw["ticker"] = ticker
             all_raw.append(raw)
-            print(f"{len(raw)} signals found")
-        else:
-            print("skipped")
 
     if not all_raw:
-        print("No data collected.")
+        print("No data collected — possible rate limit.")
+        from alerts import send_alert
+        send_alert("❌ Backtest failed — Yahoo Finance rate limit hit. Try again in 1 hour.")
         return
 
     df = pd.concat(all_raw, ignore_index=True)
-    total = len(df)
-    print(f"\nTotal raw signals across all tickers: {total}\n")
+    print(f"\nTotal raw signals: {len(df)}\n")
 
-    # ── 4 filter combinations ────────────────────────────────────────────────
-    f1 = df                                                          # Lorentzian only
-    f2 = df[df["above_vwap"]]                                       # + Weekly VWAP
-    f3 = df[df["above_vwap"] & df["vol_spike"]]                     # + Volume
-    f4 = df[df["above_vwap"] & df["vol_spike"] & df["rsi_ok"]]     # + RSI < 70
+    f1 = df
+    f2 = df[df["above_vwap"]]
+    f3 = df[df["above_vwap"] & df["vol_spike"]]
+    f4 = df[df["above_vwap"] & df["vol_spike"] & df["rsi_ok"]]
 
     summary = pd.DataFrame([
         summarise(f1, "1. Lorentzian only"),
         summarise(f2, "2. + Weekly VWAP"),
-        summarise(f3, "3. + Weekly VWAP + Volume"),
-        summarise(f4, "4. + Weekly VWAP + Volume + RSI<70"),
+        summarise(f3, "3. + VWAP + Volume"),
+        summarise(f4, "4. + VWAP + Vol + RSI<70"),
     ])
 
     print("="*60)
     print(" RESULTS")
     print("="*60)
     print(summary.to_string(index=False))
-    print()
 
-    # ── Per-ticker breakdown for best filter ─────────────────────────────────
-    print("="*60)
-    print(" PER-TICKER BREAKDOWN (Filter 4 — full stack)")
-    print("="*60)
+    # Per-ticker breakdown
     ticker_rows = []
     for t in TICKERS:
         sub = f4[f4["ticker"] == t]
@@ -246,39 +227,31 @@ def run_backtest():
             continue
         r = {"Ticker": t, "Signals": len(sub)}
         for h in HOLD_CANDLES:
-            col = f"ret_{h}"
-            r[f"WR_{h}c"]  = f"{(sub[col]>0).mean()*100:.0f}%"
-            r[f"Avg_{h}c"] = f"{sub[col].mean():+.2f}%"
+            r[f"WR_{h}c"]  = f"{(sub[f'ret_{h}']>0).mean()*100:.0f}%"
+            r[f"Avg_{h}c"] = f"{sub[f'ret_{h}'].mean():+.2f}%"
         ticker_rows.append(r)
-    if ticker_rows:
-        print(pd.DataFrame(ticker_rows).to_string(index=False))
 
-    print("\n✅ Backtest complete.")
-    print(f"   Run timestamp: {datetime.utcnow():%Y-%m-%d %H:%M} UTC\n")
-
-    # Save CSV for further analysis
-    df.to_csv("backtest_raw.csv", index=False)
-    print("   Raw signals saved to backtest_raw.csv")
-
-    # Send results to Telegram
+    # Send to Telegram
     try:
         from alerts import send_alert
-        msg = "📊 <b>BACKTEST RESULTS — 2yr 4H</b>\n\n"
-        msg += "<pre>"
-        msg += f"{'Filter':<35} {'Sig':>4} {'WR3':>6} {'WR5':>6} {'WR10':>6}\n"
-        msg += "-"*62 + "\n"
+        msg = "📊 <b>BACKTEST RESULTS — 2yr 4H</b>\n\n<pre>"
+        msg += f"{'Filter':<26}{'Sig':>4}{'WR3':>6}{'WR5':>6}{'WR10':>6}{'Avg5':>7}\n"
+        msg += "-" * 52 + "\n"
         for _, row in summary.iterrows():
-            msg += f"{row['Filter']:<35} {str(row['Signals']):>4} {str(row['WR_3c']):>6} {str(row['WR_5c']):>6} {str(row['WR_10c']):>6}\n"
+            msg += f"{row['Filter']:<26}{str(row['Signals']):>4}{str(row['WR_3c']):>6}{str(row['WR_5c']):>6}{str(row['WR_10c']):>6}{str(row['Avg_5c']):>7}\n"
         msg += "</pre>"
+
         if ticker_rows:
-            msg += "\n<b>Best tickers (Filter 4):</b>\n<pre>"
-            for r in ticker_rows[:10]:
-                msg += f"{r['Ticker']:<6} {r['Signals']:>2}sig  WR5:{r['WR_5c']}  Avg:{r['Avg_5c']}\n"
+            msg += "\n<b>Per-ticker (Filter 4):</b>\n<pre>"
+            for r in ticker_rows[:12]:
+                msg += f"{r['Ticker']:<6}{r['Signals']:>2}sig  WR5:{r['WR_5c']}  Avg5:{r['Avg_5c']}\n"
             msg += "</pre>"
+
+        msg += f"\n<i>Ran at {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
         send_alert(msg)
-        print("   Results sent to Telegram ✅")
+        print("\nResults sent to Telegram ✅")
     except Exception as e:
-        print(f"   Telegram send failed: {e}")
+        print(f"\nTelegram send failed: {e}")
 
 
 if __name__ == "__main__":
