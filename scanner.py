@@ -1,7 +1,11 @@
 """
-Lorentzian Classification Scanner
-Scans S&P500 + NASDAQ100 for fresh green signal flips on 4H timeframe.
-Sends Telegram alerts. Runs daily at 23:00 UTC (6am Prague = good timing).
+Lorentzian Classification Scanner — with VWAP + Volume + RSI filters
+Scans S&P500 + NASDAQ100 on 4H timeframe.
+Sends Telegram alerts only when ALL 4 conditions are met:
+  1. Lorentzian green flip
+  2. Price > Weekly VWAP
+  3. Volume > 1.5x 20-bar average
+  4. RSI < 70 (not overbought)
 """
 
 import os
@@ -18,7 +22,6 @@ import yfinance as yf
 from alerts import send_alert
 from tickers import get_sp500, get_nasdaq100
 
-# ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)s  %(message)s",
@@ -26,148 +29,152 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Lorentzian Classification (pure Python) ─────────────────────────────────
 
-def ema(series: pd.Series, length: int) -> pd.Series:
-    return series.ewm(span=length, adjust=False).mean()
+# ── Indicators ────────────────────────────────────────────────────────────────
 
-def rsi(close: pd.Series, length: int = 14) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / length, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1 / length, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - 100 / (1 + rs)
+def ema(s, n):
+    return s.ewm(span=n, adjust=False).mean()
 
-def wt(high: pd.Series, low: pd.Series, close: pd.Series,
-        channel_len: int = 10, avg_len: int = 21) -> pd.Series:
+def rsi(close, n=14):
+    d = close.diff()
+    g = d.clip(lower=0).ewm(alpha=1/n, adjust=False).mean()
+    l = (-d.clip(upper=0)).ewm(alpha=1/n, adjust=False).mean()
+    return 100 - 100 / (1 + g / l.replace(0, np.nan))
+
+def wt(high, low, close, cl=10, al=21):
     hlc3 = (high + low + close) / 3
-    esa = ema(hlc3, channel_len)
-    d = ema((hlc3 - esa).abs(), channel_len)
-    ci = (hlc3 - esa) / (0.015 * d.replace(0, np.nan))
-    wt1 = ema(ci, avg_len)
-    return wt1
+    esa  = ema(hlc3, cl)
+    d    = ema((hlc3 - esa).abs(), cl)
+    ci   = (hlc3 - esa) / (0.015 * d.replace(0, np.nan))
+    return ema(ci, al)
 
-def cci(high: pd.Series, low: pd.Series, close: pd.Series,
-        length: int = 20) -> pd.Series:
-    tp = (high + low + close) / 3
-    sma_tp = tp.rolling(length).mean()
-    mean_dev = tp.rolling(length).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=True)
-    return (tp - sma_tp) / (0.015 * mean_dev.replace(0, np.nan))
+def cci(high, low, close, n=20):
+    tp  = (high + low + close) / 3
+    sma = tp.rolling(n).mean()
+    md  = tp.rolling(n).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=True)
+    return (tp - sma) / (0.015 * md.replace(0, np.nan))
 
-def adx(high: pd.Series, low: pd.Series, close: pd.Series,
-        length: int = 20) -> pd.Series:
-    up = high.diff()
+def adx(high, low, close, n=20):
+    up   = high.diff()
     down = -low.diff()
-    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
-    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs(),
-    ], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / length, adjust=False).mean()
-    plus_di = 100 * pd.Series(plus_dm, index=high.index).ewm(alpha=1 / length, adjust=False).mean() / atr
-    minus_di = 100 * pd.Series(minus_dm, index=high.index).ewm(alpha=1 / length, adjust=False).mean() / atr
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    return dx.ewm(alpha=1 / length, adjust=False).mean()
+    pdm  = np.where((up > down) & (up > 0), up, 0.0)
+    mdm  = np.where((down > up) & (down > 0), down, 0.0)
+    tr   = pd.concat([high-low,
+                      (high-close.shift()).abs(),
+                      (low-close.shift()).abs()], axis=1).max(axis=1)
+    atr  = tr.ewm(alpha=1/n, adjust=False).mean()
+    pdi  = 100 * pd.Series(pdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr
+    mdi  = 100 * pd.Series(mdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr
+    dx   = 100 * (pdi-mdi).abs() / (pdi+mdi).replace(0, np.nan)
+    return dx.ewm(alpha=1/n, adjust=False).mean()
 
-def lorentzian_distance(a: np.ndarray, b: np.ndarray) -> float:
+def lorentzian_distance(a, b):
     return float(np.sum(np.log1p(np.abs(a - b))))
 
-def lorentzian_signal(df: pd.DataFrame,
-                      neighbors: int = 8,
-                      max_bars_back: int = 2000) -> pd.Series:
-    """
-    Returns a Series of signals: 1 = bullish, -1 = bearish, 0 = neutral.
-    Mirrors jdehorty's Pine Script logic using KNN + Lorentzian distance.
-    """
-    close = df["close"]
-    high  = df["high"]
-    low   = df["low"]
-
-    # Features (normalised 0-1 range helps KNN distance)
+def lorentzian_signal(df, neighbors=8, max_bars_back=2000):
+    close = df["close"]; high = df["high"]; low = df["low"]
     f1 = rsi(close, 14).fillna(50)
     f2 = wt(high, low, close).fillna(0)
     f3 = cci(high, low, close, 20).fillna(0)
     f4 = adx(high, low, close, 20).fillna(20)
-    f5 = rsi(close, 9).fillna(50)            # shorter RSI as 5th feature
-
-    # Stack features into a matrix
+    f5 = rsi(close, 9).fillna(50)
     features = np.column_stack([f1, f2, f3, f4, f5])
     n = len(features)
     signals = np.zeros(n)
-
-    for i in range(50, n):                    # need warmup
-        look_back = min(i, max_bars_back)
-        distances = []
-        labels    = []
-
-        # Sample every 4 bars (Pine Script default spacing=4)
-        for j in range(i - look_back, i - 1, 4):
+    for i in range(50, n):
+        lb = min(i, max_bars_back)
+        pairs = []
+        for j in range(i - lb, i - 1, 4):
             dist = lorentzian_distance(features[i], features[j])
-            direction = 1 if close.iloc[j + 1] > close.iloc[j] else -1
-            distances.append(dist)
-            labels.append(direction)
-
-        if not distances:
+            lbl  = 1 if close.iloc[j+1] > close.iloc[j] else -1
+            pairs.append((dist, lbl))
+        if not pairs:
             continue
-
-        # K nearest
-        sorted_pairs = sorted(zip(distances, labels))[:neighbors]
-        vote = sum(lbl for _, lbl in sorted_pairs)
+        vote = sum(l for _, l in sorted(pairs)[:neighbors])
         signals[i] = 1 if vote > 0 else (-1 if vote < 0 else 0)
-
     return pd.Series(signals, index=df.index)
 
+def weekly_vwap(df):
+    tp   = (df["high"] + df["low"] + df["close"]) / 3
+    vol  = df["volume"]
+    week = tp.index.to_series().dt.isocalendar().week.values
+    year = tp.index.to_series().dt.isocalendar().year.values
+    key  = year * 100 + week
+    vwap = pd.Series(index=df.index, dtype=float)
+    cum_tp_vol = cum_vol = 0.0
+    prev_key = None
+    for i, idx in enumerate(df.index):
+        k = key[i]
+        if k != prev_key:
+            cum_tp_vol = cum_vol = 0.0
+            prev_key = k
+        cum_tp_vol += tp.iloc[i] * vol.iloc[i]
+        cum_vol    += vol.iloc[i]
+        vwap.iloc[i] = cum_tp_vol / cum_vol if cum_vol > 0 else np.nan
+    return vwap
 
-# ── Per-stock scan ───────────────────────────────────────────────────────────
 
-def scan_stock(ticker: str) -> dict | None:
+# ── Per-stock scan ────────────────────────────────────────────────────────────
+
+def scan_stock(ticker):
     try:
-        df = yf.download(
-            ticker,
-            period="6mo",
-            interval="4h",
-            progress=False,
-            auto_adjust=True,
-        )
+        df = yf.download(ticker, period="6mo", interval="4h",
+                         progress=False, auto_adjust=True)
         if df.empty or len(df) < 100:
             return None
-
         df.columns = [c.lower() for c in df.columns]
 
-        # Basic liquidity / price filter
-        avg_vol    = df["volume"].mean()
         last_price = float(df["close"].iloc[-1])
+        avg_vol    = df["volume"].mean()
+
         if avg_vol < 500_000 or last_price < 5:
             return None
 
-        sig = lorentzian_signal(df)
+        # ── Signals & filters ────────────────────────────────────────────────
+        sig      = lorentzian_signal(df)
+        rsi_val  = float(rsi(df["close"], 14).iloc[-1])
+        vwap_val = float(weekly_vwap(df).iloc[-1])
+        vol_ma   = float(df["volume"].rolling(20).mean().iloc[-1])
+        last_vol = float(df["volume"].iloc[-1])
 
-        last = sig.iloc[-1]
-        prev = sig.iloc[-2]
+        last_sig = sig.iloc[-1]
+        prev_sig = sig.iloc[-2]
 
-        # Fresh green flip: was not bullish, now bullish
-        if last == 1 and prev != 1:
-            return {
-                "ticker": ticker,
-                "price":  round(last_price, 2),
-                "volume": int(avg_vol),
-                "signal": "🟢 BUY",
-            }
+        # Filter 1: fresh green flip
+        if not (last_sig == 1 and prev_sig != 1):
+            return None
 
+        # Filter 2: price above weekly VWAP
+        if last_price <= vwap_val:
+            return None
+
+        # Filter 3: volume spike (> 1.5x 20-bar avg)
+        if last_vol <= 1.5 * vol_ma:
+            return None
+
+        # Filter 4: RSI not overbought
+        if rsi_val >= 70:
+            return None
+
+        return {
+            "ticker":    ticker,
+            "price":     round(last_price, 2),
+            "vwap":      round(vwap_val, 2),
+            "rsi":       round(rsi_val, 1),
+            "vol_ratio": round(last_vol / vol_ma, 1),
+        }
+
+    except Exception as e:
+        log.debug("Error on %s: %s", ticker, e)
         return None
 
-    except Exception as exc:
-        log.debug("Error on %s: %s", ticker, exc)
-        return None
 
-
-# ── Main scan loop ───────────────────────────────────────────────────────────
+# ── Main scan loop ────────────────────────────────────────────────────────────
 
 def run_scan():
     log.info("=== Lorentzian scan started ===")
-    send_alert("🔍 <b>Lorentzian Scanner</b>\nStarting scan of S&P500 + NASDAQ100…")
+    send_alert("🔍 <b>Lorentzian Scanner</b>\nStarting 4H scan with full filter stack…\n"
+               "<i>Filters: Lorentzian flip + Weekly VWAP + Volume spike + RSI&lt;70</i>")
 
     tickers = list(set(get_sp500() + get_nasdaq100()))
     log.info("Total tickers: %d", len(tickers))
@@ -183,39 +190,38 @@ def run_scan():
             result = future.result()
             if result:
                 signals.append(result)
-                log.info("Signal: %s @ $%s", result["ticker"], result["price"])
+                log.info("Signal: %s @ $%s | VWAP $%s | RSI %.1f | Vol x%.1f",
+                         result["ticker"], result["price"], result["vwap"],
+                         result["rsi"], result["vol_ratio"])
             if done % 50 == 0:
                 log.info("Progress: %d / %d", done, len(tickers))
 
     log.info("Scan complete. %d signal(s) found.", len(signals))
 
     if signals:
-        msg = "🟢 <b>LORENTZIAN GREEN SIGNALS</b>\n\n"
+        msg = "🟢 <b>LORENTZIAN SIGNALS — Full Filter Stack</b>\n\n"
         for s in signals:
-            msg += f"<b>{s['ticker']}</b> — ${s['price']}\n"
-            msg += f"Vol avg: {s['volume']:,}\n\n"
-        msg += f"<i>Scanned {len(tickers)} stocks · {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
+            msg += (f"<b>{s['ticker']}</b> — ${s['price']}\n"
+                    f"VWAP: ${s['vwap']} ✅  RSI: {s['rsi']} ✅  Vol: {s['vol_ratio']}x ✅\n\n")
+        msg += (f"<i>Filters: Lorentz flip + Above Weekly VWAP + "
+                f"Vol&gt;1.5x + RSI&lt;70</i>\n"
+                f"<i>Scanned {len(tickers)} stocks · "
+                f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>")
         send_alert(msg)
     else:
-        send_alert(
-            f"✅ Scan complete — no fresh green signals.\n"
-            f"<i>Scanned {len(tickers)} stocks · {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
-        )
+        send_alert(f"✅ Scan complete — no signals passed all 4 filters today.\n"
+                   f"<i>Scanned {len(tickers)} stocks · "
+                   f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>")
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     log.info("Lorentzian Scanner starting…")
-
-    # Run once immediately on startup so Railway shows activity in logs
     run_scan()
-
-    # Then schedule daily at 23:00 UTC (= 01:00 Prague, results ready before market open)
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan)
     log.info("Next scheduled run at %s UTC daily.", schedule_time)
-
     while True:
         schedule.run_pending()
         time.sleep(60)
