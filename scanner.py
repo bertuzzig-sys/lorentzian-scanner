@@ -122,6 +122,9 @@ def scan_stock(ticker):
                          progress=False, auto_adjust=True)
         if df.empty or len(df) < 100:
             return None
+        # Flatten MultiIndex columns if present (newer yfinance)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
         df.columns = [c.lower() for c in df.columns]
 
         last_price = float(df["close"].iloc[-1])
