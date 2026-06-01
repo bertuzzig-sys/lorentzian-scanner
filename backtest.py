@@ -1,6 +1,6 @@
 """
-Lorentzian Classification Backtester
-Tests 4 filter combinations on 2 years of 4H data.
+Lorentzian Backtester — Daily candles, 5 years
+Tests filter combinations on 5 key tickers.
 Sends results to Telegram when done.
 """
 
@@ -13,16 +13,11 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime
 
-TICKERS = [
-    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD",
-    "OKLO", "PLTR", "RKLB", "SMR",
-    "JPM", "GS", "BAC",
-    "XOM", "CVX",
-    "NFLX", "CRM", "ADBE",
-    "SPY", "QQQ",
-]
+# Small focused list — your favorites + benchmark
+TICKERS = ["OKLO", "NVDA", "AAPL", "TSLA", "SPY"]
 
-HOLD_CANDLES = [3, 5, 10]
+# Daily candles → holding periods in trading days
+HOLD_DAYS = [3, 5, 10]
 
 
 # ── Indicators ────────────────────────────────────────────────────────────────
@@ -109,24 +104,23 @@ def weekly_vwap(df):
     return vwap
 
 
-# ── Download with retry ───────────────────────────────────────────────────────
+# ── Download ──────────────────────────────────────────────────────────────────
 
-def download_with_retry(ticker, retries=3):
-    for attempt in range(retries):
+def download_daily(ticker):
+    for attempt in range(3):
         try:
-            time.sleep(2)   # 2s between every download — avoids rate limit
-            df = yf.download(ticker, period="2y", interval="4h",
+            time.sleep(3)  # generous pause between calls
+            df = yf.download(ticker, period="5y", interval="1d",
                              progress=False, auto_adjust=True)
             if df.empty:
                 return None
-            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [col[0] for col in df.columns]
             df.columns = [c.lower() for c in df.columns]
             return df
         except Exception as e:
-            wait = 15 * (attempt + 1)
-            print(f"  {ticker} attempt {attempt+1} failed: {e} — waiting {wait}s")
+            wait = 20 * (attempt + 1)
+            print(f"  {ticker} attempt {attempt+1} failed: {e}\n  waiting {wait}s...")
             time.sleep(wait)
     return None
 
@@ -134,12 +128,13 @@ def download_with_retry(ticker, retries=3):
 # ── Per-ticker backtest ───────────────────────────────────────────────────────
 
 def backtest_ticker(ticker):
-    print(f"  Processing {ticker}...", end=" ", flush=True)
-    df = download_with_retry(ticker)
-
+    print(f"\n→ {ticker}")
+    df = download_daily(ticker)
     if df is None or len(df) < 200:
-        print("skipped (no data)")
+        print(f"  ✗ skipped (no data)")
         return None
+    print(f"  ✓ {len(df)} daily candles loaded")
+    print(f"  → running Lorentzian KNN...")
 
     sig    = lorentzian_signals(df)
     rsi_   = rsi(df["close"], 14).fillna(50)
@@ -147,19 +142,19 @@ def backtest_ticker(ticker):
     vol_ma = df["volume"].rolling(20).mean()
 
     results = []
-    for i in range(50, len(df) - max(HOLD_CANDLES) - 1):
+    for i in range(50, len(df) - max(HOLD_DAYS) - 1):
         if not (sig.iloc[i] == 1 and sig.iloc[i-1] != 1):
             continue
-        entry       = df["close"].iloc[i]
-        above_vwap  = entry > wvwap.iloc[i] if not np.isnan(wvwap.iloc[i]) else False
-        vol_spike   = df["volume"].iloc[i] > 1.5 * vol_ma.iloc[i] if not np.isnan(vol_ma.iloc[i]) else False
-        rsi_ok      = rsi_.iloc[i] < 70
-        rets        = {h: (df["close"].iloc[i+h] - entry) / entry * 100 for h in HOLD_CANDLES}
+        entry      = df["close"].iloc[i]
+        above_vwap = entry > wvwap.iloc[i] if not np.isnan(wvwap.iloc[i]) else False
+        vol_spike  = df["volume"].iloc[i] > 1.5 * vol_ma.iloc[i] if not np.isnan(vol_ma.iloc[i]) else False
+        rsi_ok     = rsi_.iloc[i] < 70
+        rets       = {h: (df["close"].iloc[i+h] - entry) / entry * 100 for h in HOLD_DAYS}
         results.append({"date": df.index[i], "above_vwap": above_vwap,
-                         "vol_spike": vol_spike, "rsi_ok": rsi_ok,
-                         **{f"ret_{h}": rets[h] for h in HOLD_CANDLES}})
+                        "vol_spike": vol_spike, "rsi_ok": rsi_ok,
+                        **{f"ret_{h}": rets[h] for h in HOLD_DAYS}})
 
-    print(f"{len(results)} signals")
+    print(f"  ✓ {len(results)} signals found")
     return pd.DataFrame(results) if results else None
 
 
@@ -167,24 +162,24 @@ def backtest_ticker(ticker):
 
 def summarise(df, label):
     if df is None or df.empty:
-        return {"Filter": label, "Signals": 0,
-                **{f"WR_{h}c": "—" for h in HOLD_CANDLES},
-                **{f"Avg_{h}c": "—" for h in HOLD_CANDLES}}
-    row = {"Filter": label, "Signals": len(df)}
-    for h in HOLD_CANDLES:
+        return {"Filter": label, "Sig": 0,
+                **{f"WR{h}": "—" for h in HOLD_DAYS},
+                **{f"Avg{h}": "—" for h in HOLD_DAYS}}
+    row = {"Filter": label, "Sig": len(df)}
+    for h in HOLD_DAYS:
         col = f"ret_{h}"
-        row[f"WR_{h}c"]  = f"{(df[col] > 0).mean()*100:.1f}%"
-        row[f"Avg_{h}c"] = f"{df[col].mean():+.2f}%"
+        row[f"WR{h}"]  = f"{(df[col] > 0).mean()*100:.0f}%"
+        row[f"Avg{h}"] = f"{df[col].mean():+.1f}%"
     return row
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run_backtest():
-    print("\n" + "="*60)
-    print(" LORENTZIAN BACKTEST — 2 years 4H data")
+    print("="*60)
+    print(" LORENTZIAN BACKTEST — 5yr DAILY")
     print(f" Tickers: {', '.join(TICKERS)}")
-    print("="*60 + "\n")
+    print("="*60)
 
     all_raw = []
     for ticker in TICKERS:
@@ -194,64 +189,64 @@ def run_backtest():
             all_raw.append(raw)
 
     if not all_raw:
-        print("No data collected — possible rate limit.")
-        from alerts import send_alert
-        send_alert("❌ Backtest failed — Yahoo Finance rate limit hit. Try again in 1 hour.")
+        print("\n❌ No data collected.")
+        try:
+            from alerts import send_alert
+            send_alert("❌ Backtest failed — Yahoo Finance rate limit. Try later.")
+        except Exception:
+            pass
         return
 
     df = pd.concat(all_raw, ignore_index=True)
-    print(f"\nTotal raw signals: {len(df)}\n")
+    print(f"\nTotal signals across all tickers: {len(df)}")
 
+    # Filter stacks
     f1 = df
     f2 = df[df["above_vwap"]]
     f3 = df[df["above_vwap"] & df["vol_spike"]]
     f4 = df[df["above_vwap"] & df["vol_spike"] & df["rsi_ok"]]
 
     summary = pd.DataFrame([
-        summarise(f1, "1. Lorentzian only"),
-        summarise(f2, "2. + Weekly VWAP"),
-        summarise(f3, "3. + VWAP + Volume"),
-        summarise(f4, "4. + VWAP + Vol + RSI<70"),
+        summarise(f1, "Lorentzian only"),
+        summarise(f2, "+ Weekly VWAP"),
+        summarise(f3, "+ VWAP + Volume"),
+        summarise(f4, "+ VWAP + Vol + RSI<70"),
     ])
+    print("\n" + summary.to_string(index=False))
 
-    print("="*60)
-    print(" RESULTS")
-    print("="*60)
-    print(summary.to_string(index=False))
-
-    # Per-ticker breakdown
+    # Per-ticker stats
     ticker_rows = []
     for t in TICKERS:
         sub = f4[f4["ticker"] == t]
         if sub.empty:
             continue
-        r = {"Ticker": t, "Signals": len(sub)}
-        for h in HOLD_CANDLES:
-            r[f"WR_{h}c"]  = f"{(sub[f'ret_{h}']>0).mean()*100:.0f}%"
-            r[f"Avg_{h}c"] = f"{sub[f'ret_{h}'].mean():+.2f}%"
+        r = {"Ticker": t, "Sig": len(sub)}
+        for h in HOLD_DAYS:
+            r[f"WR{h}"]  = f"{(sub[f'ret_{h}']>0).mean()*100:.0f}%"
+            r[f"Avg{h}"] = f"{sub[f'ret_{h}'].mean():+.1f}%"
         ticker_rows.append(r)
 
-    # Send to Telegram
+    # ── Send to Telegram ─────────────────────────────────────────────────────
     try:
         from alerts import send_alert
-        msg = "📊 <b>BACKTEST RESULTS — 2yr 4H</b>\n\n<pre>"
-        msg += f"{'Filter':<26}{'Sig':>4}{'WR3':>6}{'WR5':>6}{'WR10':>6}{'Avg5':>7}\n"
-        msg += "-" * 52 + "\n"
-        for _, row in summary.iterrows():
-            msg += f"{row['Filter']:<26}{str(row['Signals']):>4}{str(row['WR_3c']):>6}{str(row['WR_5c']):>6}{str(row['WR_10c']):>6}{str(row['Avg_5c']):>7}\n"
-        msg += "</pre>"
+        msg = "📊 <b>BACKTEST — 5yr DAILY</b>\n\n<pre>"
+        msg += f"{'Filter':<22}{'Sig':>4}{'WR3':>5}{'WR5':>5}{'WR10':>5}\n"
+        msg += "-" * 41 + "\n"
+        for _, r in summary.iterrows():
+            msg += f"{r['Filter']:<22}{str(r['Sig']):>4}{str(r['WR3']):>5}{str(r['WR5']):>5}{str(r['WR10']):>5}\n"
+        msg += "</pre>\n"
 
         if ticker_rows:
             msg += "\n<b>Per-ticker (Filter 4):</b>\n<pre>"
-            for r in ticker_rows[:12]:
-                msg += f"{r['Ticker']:<6}{r['Signals']:>2}sig  WR5:{r['WR_5c']}  Avg5:{r['Avg_5c']}\n"
+            for r in ticker_rows:
+                msg += f"{r['Ticker']:<6}{r['Sig']:>2}sig  WR5:{r['WR5']:>4}  Avg5:{r['Avg5']}\n"
             msg += "</pre>"
 
-        msg += f"\n<i>Ran at {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
+        msg += f"\n<i>Hold periods in DAYS. Ran {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
         send_alert(msg)
-        print("\nResults sent to Telegram ✅")
+        print("\n✅ Results sent to Telegram")
     except Exception as e:
-        print(f"\nTelegram send failed: {e}")
+        print(f"\n❌ Telegram send failed: {e}")
 
 
 if __name__ == "__main__":
