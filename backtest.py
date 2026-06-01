@@ -210,7 +210,7 @@ def run_backtest():
         summarise(f1, "Lorentzian only"),
         summarise(f2, "+ Weekly VWAP"),
         summarise(f3, "+ VWAP + Volume"),
-        summarise(f4, "+ VWAP + Vol + RSI<70"),
+        summarise(f4, "+ VWAP + Vol + RSI&lt;70"),
     ])
     print("\n" + summary.to_string(index=False))
 
