@@ -1,19 +1,20 @@
 """
-Lorentzian Classification Scanner — with VWAP + Volume + RSI filters
-Scans S&P500 + NASDAQ100 on 4H timeframe.
-Sends Telegram alerts only when ALL 4 conditions are met:
-  1. Lorentzian green flip
-  2. Price > Weekly VWAP
-  3. Volume > 1.5x 20-bar average
-  4. RSI < 70 (not overbought)
+Lorentzian Scanner — Full Filter Stack v2
+Buy AND sell signals on 4H timeframe with:
+  • Lorentzian green flip (buy) / red flip (sell)
+  • Price above/below Weekly VWAP
+  • Volume > 1.5x 20-bar average
+  • Daily volume > 1M
+  • Market cap $1B–$50B
 """
 
 import os
 import time
+import json
 import schedule
 import logging
 import concurrent.futures
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import numpy as np
@@ -28,6 +29,12 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+MCAP_CACHE_FILE = "/tmp/mcap_cache.json"
+MCAP_MIN = 1_000_000_000          # $1B
+MCAP_MAX = 50_000_000_000         # $50B
+MIN_DAILY_VOLUME = 1_000_000      # 1M shares/day
+VOLUME_SPIKE_MULT = 1.5
 
 
 # ── Indicators ────────────────────────────────────────────────────────────────
@@ -114,28 +121,68 @@ def weekly_vwap(df):
     return vwap
 
 
+# ── Market cap cache ──────────────────────────────────────────────────────────
+
+def load_mcap_cache():
+    if not os.path.exists(MCAP_CACHE_FILE):
+        return {}
+    try:
+        with open(MCAP_CACHE_FILE) as f:
+            data = json.load(f)
+        # Drop entries older than 7 days
+        cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        return {k: v for k, v in data.items() if v.get("ts", "") > cutoff}
+    except Exception:
+        return {}
+
+def save_mcap_cache(cache):
+    try:
+        with open(MCAP_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception as e:
+        log.debug("Cache save failed: %s", e)
+
+def get_market_cap(ticker, cache):
+    if ticker in cache:
+        return cache[ticker]["mcap"]
+    try:
+        info = yf.Ticker(ticker).fast_info
+        mcap = float(info.get("market_cap") or 0)
+        cache[ticker] = {"mcap": mcap, "ts": datetime.utcnow().isoformat()}
+        return mcap
+    except Exception:
+        cache[ticker] = {"mcap": 0, "ts": datetime.utcnow().isoformat()}
+        return 0
+
+
 # ── Per-stock scan ────────────────────────────────────────────────────────────
 
-def scan_stock(ticker):
+def scan_stock(ticker, mcap_cache):
     try:
         df = yf.download(ticker, period="6mo", interval="4h",
                          progress=False, auto_adjust=True)
         if df.empty or len(df) < 100:
             return None
-        # Flatten MultiIndex columns if present (newer yfinance)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [col[0] for col in df.columns]
         df.columns = [c.lower() for c in df.columns]
 
         last_price = float(df["close"].iloc[-1])
-        avg_vol    = df["volume"].mean()
-
-        if avg_vol < 500_000 or last_price < 5:
+        if last_price < 5:
             return None
 
-        # ── Signals & filters ────────────────────────────────────────────────
+        # Approx daily volume (sum of last 6 4H bars ≈ 1 trading day)
+        daily_vol = float(df["volume"].tail(6).sum())
+        if daily_vol < MIN_DAILY_VOLUME:
+            return None
+
+        # Market cap filter
+        mcap = get_market_cap(ticker, mcap_cache)
+        if mcap < MCAP_MIN or mcap > MCAP_MAX:
+            return None
+
+        # ── Compute signals & filters ────────────────────────────────────────
         sig      = lorentzian_signal(df)
-        rsi_val  = float(rsi(df["close"], 14).iloc[-1])
         vwap_val = float(weekly_vwap(df).iloc[-1])
         vol_ma   = float(df["volume"].rolling(20).mean().iloc[-1])
         last_vol = float(df["volume"].iloc[-1])
@@ -143,29 +190,33 @@ def scan_stock(ticker):
         last_sig = sig.iloc[-1]
         prev_sig = sig.iloc[-2]
 
-        # Filter 1: fresh green flip
-        if not (last_sig == 1 and prev_sig != 1):
-            return None
+        vol_spike = last_vol > VOLUME_SPIKE_MULT * vol_ma
 
-        # Filter 2: price above weekly VWAP
-        if last_price <= vwap_val:
-            return None
+        # ── BUY: fresh green flip + above VWAP + vol spike ───────────────────
+        if last_sig == 1 and prev_sig != 1:
+            if last_price > vwap_val and vol_spike:
+                return {
+                    "side":      "BUY",
+                    "ticker":    ticker,
+                    "price":     round(last_price, 2),
+                    "vwap":      round(vwap_val, 2),
+                    "vol_ratio": round(last_vol / vol_ma, 1),
+                    "mcap_b":    round(mcap / 1e9, 1),
+                }
 
-        # Filter 3: volume spike (> 1.5x 20-bar avg)
-        if last_vol <= 1.5 * vol_ma:
-            return None
+        # ── SELL: fresh red flip + below VWAP + vol spike ────────────────────
+        if last_sig == -1 and prev_sig != -1:
+            if last_price < vwap_val and vol_spike:
+                return {
+                    "side":      "SELL",
+                    "ticker":    ticker,
+                    "price":     round(last_price, 2),
+                    "vwap":      round(vwap_val, 2),
+                    "vol_ratio": round(last_vol / vol_ma, 1),
+                    "mcap_b":    round(mcap / 1e9, 1),
+                }
 
-        # Filter 4: RSI not overbought
-        if rsi_val >= 70:
-            return None
-
-        return {
-            "ticker":    ticker,
-            "price":     round(last_price, 2),
-            "vwap":      round(vwap_val, 2),
-            "rsi":       round(rsi_val, 1),
-            "vol_ratio": round(last_vol / vol_ma, 1),
-        }
+        return None
 
     except Exception as e:
         log.debug("Error on %s: %s", ticker, e)
@@ -176,51 +227,64 @@ def scan_stock(ticker):
 
 def run_scan():
     log.info("=== Lorentzian scan started ===")
-    send_alert("🔍 <b>Lorentzian Scanner</b>\nStarting 4H scan with full filter stack…\n"
-               "<i>Filters: Lorentzian flip + Weekly VWAP + Volume spike + RSI&lt;70</i>")
+    send_alert("🔍 <b>Lorentzian Scanner v2</b>\n"
+               "Buy + Sell signals · 4H timeframe\n"
+               "<i>Filters: Lorentz flip + Weekly VWAP + Volume spike + "
+               "Mcap $1B-$50B + Vol&gt;1M/day</i>")
 
     tickers = list(set(get_sp500() + get_nasdaq100()))
     log.info("Total tickers: %d", len(tickers))
 
+    mcap_cache = load_mcap_cache()
+    log.info("Market cap cache: %d entries", len(mcap_cache))
+
     signals = []
-    workers = int(os.getenv("SCAN_WORKERS", "8"))
+    workers = int(os.getenv("SCAN_WORKERS", "6"))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(scan_stock, t): t for t in tickers}
+        futures = {pool.submit(scan_stock, t, mcap_cache): t for t in tickers}
         done = 0
         for future in concurrent.futures.as_completed(futures):
             done += 1
             result = future.result()
             if result:
                 signals.append(result)
-                log.info("Signal: %s @ $%s | VWAP $%s | RSI %.1f | Vol x%.1f",
-                         result["ticker"], result["price"], result["vwap"],
-                         result["rsi"], result["vol_ratio"])
+                log.info("%s: %s @ $%s | VWAP $%s | Vol %.1fx | Mcap $%.1fB",
+                         result["side"], result["ticker"], result["price"],
+                         result["vwap"], result["vol_ratio"], result["mcap_b"])
             if done % 50 == 0:
                 log.info("Progress: %d / %d", done, len(tickers))
 
+    save_mcap_cache(mcap_cache)
     log.info("Scan complete. %d signal(s) found.", len(signals))
 
-    if signals:
-        msg = "🟢 <b>LORENTZIAN SIGNALS — Full Filter Stack</b>\n\n"
-        for s in signals:
-            msg += (f"<b>{s['ticker']}</b> — ${s['price']}\n"
-                    f"VWAP: ${s['vwap']} ✅  RSI: {s['rsi']} ✅  Vol: {s['vol_ratio']}x ✅\n\n")
-        msg += (f"<i>Filters: Lorentz flip + Above Weekly VWAP + "
-                f"Vol&gt;1.5x + RSI&lt;70</i>\n"
-                f"<i>Scanned {len(tickers)} stocks · "
-                f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>")
+    buys  = [s for s in signals if s["side"] == "BUY"]
+    sells = [s for s in signals if s["side"] == "SELL"]
+
+    if buys or sells:
+        msg = "🎯 <b>LORENTZIAN SIGNALS</b>\n\n"
+        if buys:
+            msg += "🟢 <b>BUY:</b>\n"
+            for s in buys:
+                msg += (f"<b>{s['ticker']}</b> ${s['price']} "
+                        f"(Mcap ${s['mcap_b']}B)\n"
+                        f"VWAP: ${s['vwap']} · Vol: {s['vol_ratio']}x\n\n")
+        if sells:
+            msg += "🔴 <b>SELL:</b>\n"
+            for s in sells:
+                msg += (f"<b>{s['ticker']}</b> ${s['price']} "
+                        f"(Mcap ${s['mcap_b']}B)\n"
+                        f"VWAP: ${s['vwap']} · Vol: {s['vol_ratio']}x\n\n")
+        msg += f"<i>Scanned {len(tickers)} stocks · {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
         send_alert(msg)
     else:
-        send_alert(f"✅ Scan complete — no signals passed all 4 filters today.\n"
+        send_alert(f"✅ Scan complete — no signals today.\n"
                    f"<i>Scanned {len(tickers)} stocks · "
                    f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner starting…")
+    log.info("Lorentzian Scanner v2 starting…")
     run_scan()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan)
