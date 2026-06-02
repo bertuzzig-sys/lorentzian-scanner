@@ -14,7 +14,7 @@ import json
 import schedule
 import logging
 import concurrent.futures
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import numpy as np
@@ -130,7 +130,7 @@ def load_mcap_cache():
         with open(MCAP_CACHE_FILE) as f:
             data = json.load(f)
         # Drop entries older than 7 days
-        cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         return {k: v for k, v in data.items() if v.get("ts", "") > cutoff}
     except Exception:
         return {}
@@ -148,10 +148,10 @@ def get_market_cap(ticker, cache):
     try:
         info = yf.Ticker(ticker).fast_info
         mcap = float(info.get("market_cap") or 0)
-        cache[ticker] = {"mcap": mcap, "ts": datetime.utcnow().isoformat()}
+        cache[ticker] = {"mcap": mcap, "ts": datetime.now(timezone.utc).isoformat()}
         return mcap
     except Exception:
-        cache[ticker] = {"mcap": 0, "ts": datetime.utcnow().isoformat()}
+        cache[ticker] = {"mcap": 0, "ts": datetime.now(timezone.utc).isoformat()}
         return 0
 
 
@@ -239,7 +239,7 @@ def run_scan():
     log.info("Market cap cache: %d entries", len(mcap_cache))
 
     signals = []
-    workers = int(os.getenv("SCAN_WORKERS", "6"))
+    workers = int(os.getenv("SCAN_WORKERS", "4"))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(scan_stock, t, mcap_cache): t for t in tickers}
@@ -275,12 +275,12 @@ def run_scan():
                 msg += (f"<b>{s['ticker']}</b> ${s['price']} "
                         f"(Mcap ${s['mcap_b']}B)\n"
                         f"VWAP: ${s['vwap']} · Vol: {s['vol_ratio']}x\n\n")
-        msg += f"<i>Scanned {len(tickers)} stocks · {datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>"
+        msg += f"<i>Scanned {len(tickers)} stocks · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>"
         send_alert(msg)
     else:
         send_alert(f"✅ Scan complete — no signals today.\n"
                    f"<i>Scanned {len(tickers)} stocks · "
-                   f"{datetime.utcnow():%Y-%m-%d %H:%M} UTC</i>")
+                   f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>")
 
 
 if __name__ == "__main__":
