@@ -1,16 +1,17 @@
 """
-Ticker universe fetchers.
-Russell 2000 + S&P MidCap 400 = ~2400 stocks
-$1B-$50B mcap filter applied downstream in scanner.py keeps ~600-800 of these.
+Ticker universe: S&P MidCap 400 + curated Russell 2000 names
+$1B-$50B mcap filter applied in scanner.py
 """
 
 import logging
+import ssl
+import urllib.request
 import pandas as pd
 
 log = logging.getLogger(__name__)
 
 
-# ── Fallback lists if Wikipedia fetch fails ─────────────────────────────────
+# ── Curated fallback lists (used if Wikipedia/iShares fetch fails) ──────────
 SP_MIDCAP_400_FALLBACK = [
     "BLDR","FSLR","ENPH","SMCI","DECK","CSL","SAIA","WSM","JBL","KBR",
     "MANH","BWXT","PSTG","FIX","CW","RGA","RNR","EME","MOH","WAL",
@@ -21,75 +22,90 @@ SP_MIDCAP_400_FALLBACK = [
     "OLN","KNX","KMX","CFR","OGE","DCI","AMG","CGNX","MIDD","CHDN",
     "RBC","SLM","ALE","PNFP","WCC","NJR","BCO","ZWS","NSP","AFG",
     "MTN","PNW","MORN","WTRG","OZK","FAF","INGR","SON","JEF","AAP",
-    "SCI","SF","DAR","HRB","PR","CMC","CADE","DKS","WCC","BRX",
+    "SCI","DAR","HRB","PR","CMC","CADE","DKS","BRX","FN","WTS",
+    "LSCC","SAIC","RHI","COLM","CHH","HXL","RRC","KEX","JLL","BLD",
+    "AGCO","HALO","NOV","MTZ","CROX","PII","CC","SLGN","R","FYBR",
+    "ALV","BERY","HOG","KRC","SR","WH","AYI","NVT","EWBC","TXRH",
 ]
 
 RUSSELL_2000_KEY_NAMES = [
-    # Speculative growth names that fit our $1B-$50B target
-    "OKLO","SMR","VST","TLN","CEG","RKLB","ASTS","PL","JOBY","ARCB",
-    "SOFI","UPST","HOOD","AFRM","COIN","RIVN","LCID","FFIE","NKLA",
+    # Nuclear/Energy speculative
+    "OKLO","SMR","VST","TLN","CEG","NNE","UEC","UUUU","DNN","CCJ",
+    # Space/Defense
+    "RKLB","ASTS","PL","JOBY","ARCB","RDW","BBAI","KTOS","AVAV",
+    # Fintech/Crypto
+    "SOFI","UPST","HOOD","AFRM","COIN","RIVN","LCID","NU","SE",
+    # Cloud/SaaS
     "SNOW","NET","DDOG","MDB","ZS","OKTA","ESTC","CRWD","S","PATH",
-    "MRNA","BNTX","RXRX","CRSP","NTLA","EDIT","BEAM","VKTX","RKT","ALNY",
+    "DOCN","FROG","SUMO","CFLT","GTLB","NCNO","BILL",
+    # Biotech mid-cap
+    "MRNA","BNTX","RXRX","CRSP","NTLA","EDIT","BEAM","VKTX","ALNY",
+    "MDGL","KRYS","ITCI","INSM","REPL","SRPT",
+    # Consumer
     "RDDT","RBLX","ETSY","U","ABNB","PINS","HUBS","DASH","SPOT","FIVN",
+    "NU","BMBL","AS","CART","WBD",
+    # Clean energy / industrials
     "FSLR","ENPH","BLDR","NEXT","CHPT","BE","STEM","RUN","ARRY","SEDG",
-    "WULF","CIFR","MARA","CLSK","IREN","HUT","BTBT","RIOT","HIVE",
-    "APP","TTD","ROKU","RBLX","SHOP","MELI","SE","NU","PYPL",
+    "PLUG","FCEL","NIO","XPEV","LI","BLNK","EVGO",
+    # Crypto/Mining
+    "WULF","CIFR","MARA","CLSK","IREN","HUT","BTBT","RIOT","HIVE","BITF",
+    # Apps/Tech mid
+    "APP","TTD","ROKU","SHOP","MELI","PYPL","SQ","ABNB",
+    # Healthcare mid
+    "DXCM","ALGN","VEEV","WST","RMD","TFX","CRL","BIO",
 ]
 
 
-def _try_fetch_html(url, table_idx=None, symbol_col="Symbol"):
+def _fetch_wikipedia_table(url, name="table"):
+    """Fetch a Wikipedia table, falling back gracefully."""
     try:
         tables = pd.read_html(url)
-        # Try to find a table with a Symbol/Ticker column
-        for i, t in enumerate(tables):
-            for col_name in [symbol_col, "Ticker", "Ticker symbol"]:
-                if col_name in t.columns:
-                    syms = t[col_name].dropna().astype(str).str.replace(".", "-", regex=False).tolist()
-                    if len(syms) > 50:  # sanity check
+        for t in tables:
+            for col in ["Symbol", "Ticker", "Ticker symbol"]:
+                if col in t.columns:
+                    syms = t[col].dropna().astype(str).str.replace(".", "-", regex=False).tolist()
+                    if len(syms) > 50:
                         return syms
-        return None
     except Exception as e:
-        log.warning("Fetch %s failed: %s", url, e)
-        return None
+        log.warning("%s Wikipedia fetch failed: %s", name, e)
+    return None
 
 
 def get_sp_midcap_400():
-    syms = _try_fetch_html("https://en.wikipedia.org/wiki/List_of_S%26P_400_companies")
+    syms = _fetch_wikipedia_table("https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", "S&P 400")
     if syms:
         log.info("S&P MidCap 400: fetched %d tickers", len(syms))
         return syms
-    log.warning("S&P 400 fallback list used")
+    log.warning("S&P MidCap 400 fallback list used (%d tickers)", len(SP_MIDCAP_400_FALLBACK))
     return SP_MIDCAP_400_FALLBACK
 
 
 def get_russell_2000():
-    """
-    Russell 2000 has ~2000 holdings — no clean single Wikipedia source.
-    We use iShares IWM holdings list as proxy.
-    Falls back to curated list of high-volume Russell 2000 names that fit our criteria.
-    """
+    """Russell 2000 — try iShares CSV, fall back to curated list."""
     try:
-        # iShares publishes the IWM (Russell 2000 ETF) holdings as CSV
+        # Try with proper SSL context
+        ctx = ssl.create_default_context()
         url = "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"
-        df = pd.read_csv(url, skiprows=9)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+            data = resp.read().decode("utf-8", errors="ignore")
+        # CSV has 9 header lines before the actual data
+        from io import StringIO
+        df = pd.read_csv(StringIO(data), skiprows=9)
         if "Ticker" in df.columns:
             syms = df["Ticker"].dropna().astype(str).tolist()
-            # Clean dashes
-            syms = [s.replace(".", "-") for s in syms if s and s != "-"]
+            syms = [s.replace(".", "-") for s in syms if s and s != "-" and len(s) <= 5]
             log.info("Russell 2000: fetched %d holdings from iShares", len(syms))
             return syms
     except Exception as e:
         log.warning("Russell 2000 iShares fetch failed: %s", e)
-    log.warning("Russell 2000 fallback list used (curated names only)")
+    log.warning("Russell 2000 curated fallback used (%d tickers)", len(RUSSELL_2000_KEY_NAMES))
     return RUSSELL_2000_KEY_NAMES
 
 
-# Backwards-compatible wrappers so scanner.py doesn't need changes
+# Backwards-compatible wrappers
 def get_sp500():
-    """Returns S&P MidCap 400 instead — function name kept for compatibility."""
     return get_sp_midcap_400()
 
-
 def get_nasdaq100():
-    """Returns Russell 2000 instead — function name kept for compatibility."""
     return get_russell_2000()
