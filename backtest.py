@@ -14,22 +14,20 @@ import yfinance as yf
 from datetime import datetime
 
 TICKERS = [
-    # Mega-cap tech
-    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
-    # Growth / momentum
-    "TSLA", "AMD", "PLTR", "OKLO", "RKLB", "SMR",
-    # Mid-cap tech
-    "CRM", "ADBE", "NFLX", "AVGO",
-    # Financials
-    "JPM", "GS", "BAC", "MS",
-    # Energy
-    "XOM", "CVX", "OXY",
-    # Healthcare
-    "UNH", "LLY", "JNJ",
-    # Consumer / industrials
-    "WMT", "COST", "CAT",
-    # Benchmark
-    "SPY",
+    # Nuclear / energy speculative
+    "OKLO", "SMR", "VST", "TLN", "CEG",
+    # Space / defense
+    "RKLB", "ASTS", "PL",
+    # Fintech / crypto
+    "SOFI", "UPST", "HOOD", "AFRM", "COIN",
+    # Cloud / SaaS mid-cap
+    "SNOW", "NET", "DDOG", "MDB", "ZS", "OKTA", "ESTC",
+    # Biotech mid
+    "MRNA", "BNTX", "RXRX",
+    # Consumer / online
+    "RDDT", "RBLX", "ETSY", "U", "ABNB",
+    # Industrial / clean energy
+    "FSLR", "ENPH", "BLDR",
 ]
 HOLD_DAYS = [3, 5, 10]
 
