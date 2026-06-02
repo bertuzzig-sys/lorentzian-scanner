@@ -53,6 +53,9 @@ RUSSELL_2000_KEY_NAMES = [
     "APP","TTD","ROKU","SHOP","MELI","PYPL","SQ","ABNB",
     # Healthcare mid
     "DXCM","ALGN","VEEV","WST","RMD","TFX","CRL","BIO",
+    # User-added watchlist (Jun 2026)
+    "ZETA","NBIS","TE","DARE","QS","SERV","CRDO","AUR","NVTS","RGTI",
+    "FLNC","PATH","ON","TER","NXT","CYTK",
 ]
 
 
