@@ -13,7 +13,24 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime
 
-TICKERS = ["OKLO", "NVDA", "AAPL", "TSLA", "SPY"]
+TICKERS = [
+    # Mega-cap tech
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN",
+    # Growth / momentum
+    "TSLA", "AMD", "PLTR", "OKLO", "RKLB", "SMR",
+    # Mid-cap tech
+    "CRM", "ADBE", "NFLX", "AVGO",
+    # Financials
+    "JPM", "GS", "BAC", "MS",
+    # Energy
+    "XOM", "CVX", "OXY",
+    # Healthcare
+    "UNH", "LLY", "JNJ",
+    # Consumer / industrials
+    "WMT", "COST", "CAT",
+    # Benchmark
+    "SPY",
+]
 HOLD_DAYS = [3, 5, 10]
 
 
