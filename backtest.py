@@ -1,7 +1,7 @@
 """
-Lorentzian Backtester v3 — tests OBV + lower volume threshold
-5 tickers, 5 years daily data
-Compares filter stacks A/B/C
+Lorentzian Backtester v4 — TESTING MARKET REGIME FILTER
+Adds: SPY > 50-day MA check on signal date.
+Compares 4 filter stacks on the mid-cap universe.
 """
 
 import warnings
@@ -11,22 +11,14 @@ import time
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
 
 TICKERS = [
-    # Nuclear / energy speculative
     "OKLO", "SMR", "VST", "TLN", "CEG",
-    # Space / defense
     "RKLB", "ASTS", "PL",
-    # Fintech / crypto
     "SOFI", "UPST", "HOOD", "AFRM", "COIN",
-    # Cloud / SaaS mid-cap
     "SNOW", "NET", "DDOG", "MDB", "ZS", "OKTA", "ESTC",
-    # Biotech mid
     "MRNA", "BNTX", "RXRX",
-    # Consumer / online
     "RDDT", "RBLX", "ETSY", "U", "ABNB",
-    # Industrial / clean energy
     "FSLR", "ENPH", "BLDR",
 ]
 HOLD_DAYS = [3, 5, 10]
@@ -94,11 +86,11 @@ def lorentzian_signals(df, neighbors=8, max_bars_back=2000):
     return pd.Series(signals, index=df.index)
 
 def weekly_vwap(df):
-    tp   = (df["high"] + df["low"] + df["close"]) / 3
-    vol  = df["volume"]
+    tp = (df["high"] + df["low"] + df["close"]) / 3
+    vol = df["volume"]
     week = tp.index.to_series().dt.isocalendar().week.values
     year = tp.index.to_series().dt.isocalendar().year.values
-    key  = year * 100 + week
+    key = year * 100 + week
     vwap = pd.Series(index=df.index, dtype=float)
     cum_tp_vol = cum_vol = 0.0
     prev_key = None
@@ -108,17 +100,12 @@ def weekly_vwap(df):
             cum_tp_vol = cum_vol = 0.0
             prev_key = k
         cum_tp_vol += tp.iloc[i] * vol.iloc[i]
-        cum_vol    += vol.iloc[i]
+        cum_vol += vol.iloc[i]
         vwap.iloc[i] = cum_tp_vol / cum_vol if cum_vol > 0 else np.nan
     return vwap
 
-def obv(close, volume):
-    """On-Balance Volume — cumulative volume signed by price direction."""
-    direction = np.sign(close.diff().fillna(0))
-    return (direction * volume).cumsum()
 
-
-# ── Download ──────────────────────────────────────────────────────────────────
+# ── Download helpers ──────────────────────────────────────────────────────────
 
 def download_daily(ticker):
     for attempt in range(3):
@@ -137,9 +124,24 @@ def download_daily(ticker):
     return None
 
 
+# ── Market regime: SPY > 50-day MA ────────────────────────────────────────────
+
+def get_spy_regime():
+    """Returns a Series indexed by date: True if SPY > 50d MA, False otherwise."""
+    print("\n→ Loading SPY for market regime filter...")
+    spy = download_daily("SPY")
+    if spy is None:
+        print("  ✗ SPY load failed — regime filter disabled")
+        return None
+    spy_ma = spy["close"].rolling(50).mean()
+    regime = spy["close"] > spy_ma
+    print(f"  ✓ SPY regime loaded ({regime.sum()} bullish days of {len(regime)})")
+    return regime
+
+
 # ── Per-ticker backtest ───────────────────────────────────────────────────────
 
-def backtest_ticker(ticker):
+def backtest_ticker(ticker, regime):
     print(f"\n→ {ticker}")
     df = download_daily(ticker)
     if df is None or len(df) < 200:
@@ -149,28 +151,32 @@ def backtest_ticker(ticker):
     sig    = lorentzian_signals(df)
     wvwap  = weekly_vwap(df)
     vol_ma = df["volume"].rolling(20).mean()
-    obv_   = obv(df["close"], df["volume"])
-    obv_ma = obv_.rolling(20).mean()
 
     results = []
     for i in range(50, len(df) - max(HOLD_DAYS) - 1):
         if not (sig.iloc[i] == 1 and sig.iloc[i-1] != 1):
             continue
         entry      = df["close"].iloc[i]
+        date       = df.index[i]
         above_vwap = entry > wvwap.iloc[i] if not np.isnan(wvwap.iloc[i]) else False
         vol_spike  = df["volume"].iloc[i] > 1.5 * vol_ma.iloc[i] if not np.isnan(vol_ma.iloc[i]) else False
-        obv_rising = obv_.iloc[i] > obv_ma.iloc[i] if not np.isnan(obv_ma.iloc[i]) else False
-        rets       = {h: (df["close"].iloc[i+h] - entry) / entry * 100 for h in HOLD_DAYS}
-        results.append({"date": df.index[i],
-                        "above_vwap": above_vwap,
-                        "vol_spike":  vol_spike,
-                        "obv_rising": obv_rising,
+
+        # Market regime check: SPY > 50d MA on this date?
+        regime_bull = False
+        if regime is not None and date in regime.index:
+            regime_bull = bool(regime.loc[date])
+
+        rets = {h: (df["close"].iloc[i+h] - entry) / entry * 100 for h in HOLD_DAYS}
+        results.append({"date": date,
+                        "above_vwap":  above_vwap,
+                        "vol_spike":   vol_spike,
+                        "regime_bull": regime_bull,
                         **{f"ret_{h}": rets[h] for h in HOLD_DAYS}})
     print(f"  ✓ {len(results)} signals")
     return pd.DataFrame(results) if results else None
 
 
-# ── Summary helper ────────────────────────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────────────────────
 
 def summarise(df, label):
     if df is None or df.empty:
@@ -189,46 +195,50 @@ def summarise(df, label):
 
 def run_backtest():
     print("="*60)
-    print(" LORENTZIAN BACKTEST v3 — TESTING OBV FILTER")
-    print(f" Tickers: {', '.join(TICKERS)}")
+    print(" LORENTZIAN BACKTEST v4 — MARKET REGIME TEST")
+    print(f" Universe: {len(TICKERS)} mid-caps")
     print("="*60)
+
+    # Load SPY first
+    regime = get_spy_regime()
 
     all_raw = []
     for ticker in TICKERS:
-        raw = backtest_ticker(ticker)
+        raw = backtest_ticker(ticker, regime)
         if raw is not None:
             raw["ticker"] = ticker
             all_raw.append(raw)
 
     if not all_raw:
-        print("\nNo data."); return
+        print("No data."); return
 
     df = pd.concat(all_raw, ignore_index=True)
     print(f"\nTotal signals: {len(df)}")
 
     # Filter stacks
-    cur  = df[df["above_vwap"] & df["vol_spike"]]              # current live setup
-    obv1 = df[df["above_vwap"] & df["vol_spike"] & df["obv_rising"]]  # + OBV
-    # Note: we can't simulate "lower volume threshold" in backtest because
-    # we have no mcap data here — but OBV alone vs not is the key question
+    f_lor = df                                                          # raw
+    f_cur = df[df["above_vwap"] & df["vol_spike"]]                      # current live
+    f_reg = df[df["above_vwap"] & df["vol_spike"] & df["regime_bull"]]  # + regime
+    f_reg_only = df[df["regime_bull"]]                                  # regime alone for control
 
     summary = pd.DataFrame([
-        summarise(df,   "A. Lorentzian only"),
-        summarise(cur,  "B. Current live (VWAP+Vol)"),
-        summarise(obv1, "C. B + OBV confirmation"),
+        summarise(f_lor,      "A. Lorentzian only"),
+        summarise(f_reg_only, "B. + SPY regime only"),
+        summarise(f_cur,      "C. Current live (VWAP+Vol)"),
+        summarise(f_reg,      "D. C + SPY regime"),
     ])
     print("\n" + summary.to_string(index=False))
 
     # Send to Telegram
     try:
         from alerts import send_alert
-        msg = "📊 <b>BACKTEST v3 — OBV TEST</b>\n\n<pre>"
+        msg = "📊 <b>BACKTEST v4 — REGIME TEST</b>\n\n<pre>"
         msg += f"{'Filter':<28}{'Sig':>4}{'WR3':>5}{'WR5':>5}{'WR10':>5}\n"
         msg += "-" * 47 + "\n"
         for _, r in summary.iterrows():
             msg += f"{r['Filter']:<28}{str(r['Sig']):>4}{str(r['WR3']):>5}{str(r['WR5']):>5}{str(r['WR10']):>5}\n"
         msg += "</pre>\n"
-        msg += "\n<i>If C beats B by 5%+ WR → deploy OBV. Otherwise keep B.</i>"
+        msg += "\n<i>Compare D vs C. If D beats C by 3%+ WR10 → deploy regime.</i>"
         send_alert(msg)
         print("\n✅ Sent to Telegram")
     except Exception as e:
