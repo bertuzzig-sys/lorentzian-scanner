@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 MCAP_CACHE_FILE = "/tmp/mcap_cache.json"
 MCAP_MIN = 1_000_000_000          # $1B
-MCAP_MAX = 50_000_000_000         # $50B
+MCAP_MAX = 100_000_000_000         # $100B
 MIN_DAILY_VOLUME = 1_000_000      # 1M shares/day
 VOLUME_SPIKE_MULT = 1.5
 
