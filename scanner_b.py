@@ -132,11 +132,12 @@ def get_market_cap(ticker, cache):
 
 # ── Per-stock scan ────────────────────────────────────────────────────────────
 
-def scan_stock(ticker, mcap_cache):
+def scan_stock(ticker, mcap_cache, counters):
     try:
         df = yf.download(ticker, period="6mo", interval="1d",
                          progress=False, auto_adjust=True)
         if df.empty or len(df) < 100:
+            counters["no_data"] += 1
             return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [col[0] for col in df.columns]
@@ -144,16 +145,20 @@ def scan_stock(ticker, mcap_cache):
 
         last_price = float(df["close"].iloc[-1])
         if last_price < 5:
+            counters["price"] += 1
             return None
 
         daily_vol = float(df["volume"].iloc[-1])
         if daily_vol < MIN_DAILY_VOLUME:
+            counters["volume"] += 1
             return None
 
         mcap = get_market_cap(ticker, mcap_cache)
         if mcap < MCAP_MIN or mcap > MCAP_MAX:
+            counters["mcap"] += 1
             return None
 
+        counters["passed"] += 1
         sig      = lorentzian_signal(df)
         last_sig = sig.iloc[-1]
         prev_sig = sig.iloc[-2]
@@ -195,9 +200,10 @@ def run_scan():
     mcap_cache = load_mcap_cache()
     signals = []
     workers = int(os.getenv("SCAN_WORKERS", "4"))
+    counters = {"no_data": 0, "price": 0, "volume": 0, "mcap": 0, "passed": 0}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(scan_stock, t, mcap_cache): t for t in tickers}
+        futures = {pool.submit(scan_stock, t, mcap_cache, counters): t for t in tickers}
         done = 0
         for future in concurrent.futures.as_completed(futures):
             done += 1
@@ -212,6 +218,18 @@ def run_scan():
 
     save_mcap_cache(mcap_cache)
     log.info("[LC] Scan complete. %d signal(s) found.", len(signals))
+    log.info("[LC] Filter breakdown — passed: %d | no_data: %d | price<5: %d | vol<1M: %d | mcap_oor: %d",
+             counters["passed"], counters["no_data"], counters["price"],
+             counters["volume"], counters["mcap"])
+
+    filter_msg = (f"📊 <b>[LC] Filter breakdown</b>\n"
+                  f"Total fetched: {len(tickers)}\n"
+                  f"✅ Passed all filters: {counters['passed']}\n"
+                  f"❌ No data / too short: {counters['no_data']}\n"
+                  f"❌ Price &lt;$5: {counters['price']}\n"
+                  f"❌ Volume &lt;1M: {counters['volume']}\n"
+                  f"❌ Mcap out of range: {counters['mcap']}")
+    send_alert(filter_msg)
 
     buys  = [s for s in signals if s["side"] == "BUY"]
     sells = [s for s in signals if s["side"] == "SELL"]
