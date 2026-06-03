@@ -1,2 +1,1 @@
-worker: python scanner.py
-worker_b: python scanner_b.py
+worker: python run_all.py
