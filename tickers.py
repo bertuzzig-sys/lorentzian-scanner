@@ -1,6 +1,6 @@
 """
-Ticker universe: S&P MidCap 400 + curated Russell 2000 names
-$1B-$50B mcap filter applied in scanner.py
+Ticker universe: S&P MidCap 400 + full Russell 2000
+mcap filter applied in scanner.py
 """
 
 import logging
@@ -11,7 +11,6 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 
-# ── Curated fallback lists (used if Wikipedia/iShares fetch fails) ──────────
 SP_MIDCAP_400_FALLBACK = [
     "BLDR","FSLR","ENPH","SMCI","DECK","CSL","SAIA","WSM","JBL","KBR",
     "MANH","BWXT","PSTG","FIX","CW","RGA","RNR","EME","MOH","WAL",
@@ -28,34 +27,23 @@ SP_MIDCAP_400_FALLBACK = [
     "ALV","BERY","HOG","KRC","SR","WH","AYI","NVT","EWBC","TXRH",
 ]
 
-RUSSELL_2000_KEY_NAMES = [
-    # Nuclear/Energy speculative
+RUSSELL_2000_FALLBACK = [
     "OKLO","SMR","VST","TLN","CEG","NNE","UEC","UUUU","DNN","CCJ",
-    # Space/Defense
     "RKLB","ASTS","PL","JOBY","ARCB","RDW","BBAI","KTOS","AVAV",
-    # Fintech/Crypto
     "SOFI","UPST","HOOD","AFRM","COIN","RIVN","LCID","NU","SE",
-    # Cloud/SaaS
     "SNOW","NET","DDOG","MDB","ZS","OKTA","ESTC","CRWD","S","PATH",
     "DOCN","FROG","SUMO","CFLT","GTLB","NCNO","BILL",
-    # Biotech mid-cap
     "MRNA","BNTX","RXRX","CRSP","NTLA","EDIT","BEAM","VKTX","ALNY",
     "MDGL","KRYS","ITCI","INSM","REPL","SRPT",
-    # Consumer
     "RDDT","RBLX","ETSY","U","ABNB","PINS","HUBS","DASH","SPOT","FIVN",
-    "NU","BMBL","AS","CART","WBD",
-    # Clean energy / industrials
-    "FSLR","ENPH","BLDR","NEXT","CHPT","BE","STEM","RUN","ARRY","SEDG",
-    "PLUG","FCEL","NIO","XPEV","LI","BLNK","EVGO",
-    # Crypto/Mining
+    "BMBL","AS","CART","WBD",
+    "NEXT","CHPT","BE","STEM","RUN","ARRY","SEDG","PLUG","FCEL",
+    "NIO","XPEV","LI","BLNK","EVGO",
     "WULF","CIFR","MARA","CLSK","IREN","HUT","BTBT","RIOT","HIVE","BITF",
-    # Apps/Tech mid
-    "APP","TTD","ROKU","SHOP","MELI","PYPL","SQ","ABNB",
-    # Healthcare mid
+    "APP","TTD","ROKU","SHOP","MELI","PYPL","SQ",
     "DXCM","ALGN","VEEV","WST","RMD","TFX","CRL","BIO",
-    # User-added watchlist (Jun 2026)
     "ZETA","NBIS","TE","DARE","QS","SERV","CRDO","AUR","NVTS","RGTI",
-    "FLNC","PATH","ON","TER","NXT","CYTK",
+    "FLNC","ON","TER","NXT","CYTK",
 ]
 
 
@@ -84,26 +72,24 @@ def get_sp_midcap_400():
 
 
 def get_russell_2000():
-    """Russell 2000 — try iShares CSV, fall back to curated list."""
+    """Russell 2000 — try iShares CSV (full ~2000 names), fall back to curated list."""
     try:
-        # Try with proper SSL context
         ctx = ssl.create_default_context()
         url = "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf/1467271812596.ajax?fileType=csv&fileName=IWM_holdings&dataType=fund"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
             data = resp.read().decode("utf-8", errors="ignore")
-        # CSV has 9 header lines before the actual data
         from io import StringIO
         df = pd.read_csv(StringIO(data), skiprows=9)
         if "Ticker" in df.columns:
             syms = df["Ticker"].dropna().astype(str).tolist()
             syms = [s.replace(".", "-") for s in syms if s and s != "-" and len(s) <= 5]
-            log.info("Russell 2000: fetched %d holdings from iShares", len(syms))
+            log.info("Russell 2000: fetched %d holdings from iShares (full universe)", len(syms))
             return syms
     except Exception as e:
         log.warning("Russell 2000 iShares fetch failed: %s", e)
-    log.warning("Russell 2000 curated fallback used (%d tickers)", len(RUSSELL_2000_KEY_NAMES))
-    return RUSSELL_2000_KEY_NAMES
+    log.warning("Russell 2000 fallback list used (%d tickers)", len(RUSSELL_2000_FALLBACK))
+    return RUSSELL_2000_FALLBACK
 
 
 # Backwards-compatible wrappers
