@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 MCAP_CACHE_FILE = "/tmp/mcap_cache_b.json"
 MCAP_MIN = 1_000_000_000
-MCAP_MAX = 50_000_000_000
+MCAP_MAX = 100_000_000_000
 MIN_DAILY_VOLUME = 1_000_000
 
 
