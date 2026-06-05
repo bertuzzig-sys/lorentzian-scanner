@@ -7,6 +7,7 @@ Runs in parallel with scanner.py, same Telegram chat, labelled [LC]
 import os
 import time
 import json
+import random
 import schedule
 import logging
 import concurrent.futures
@@ -15,6 +16,16 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import urllib3
+import requests
+from requests.adapters import HTTPAdapter
+
+# Bump connection pool to silence "pool is full" warnings under concurrency
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_session = requests.Session()
+_adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=0)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 from alerts import send_alert
 from tickers import get_sp500, get_nasdaq100
@@ -132,11 +143,29 @@ def get_market_cap(ticker, cache):
 
 # ── Per-stock scan ────────────────────────────────────────────────────────────
 
+def _download_with_retry(ticker, max_retries=2):
+    """Download with retry-on-rate-limit and small jitter delay."""
+    for attempt in range(max_retries + 1):
+        try:
+            time.sleep(random.uniform(0.05, 0.20))  # gentle pacing
+            df = yf.download(ticker, period="6mo", interval="1d",
+                             progress=False, auto_adjust=True)
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            msg = str(e).lower()
+            if "rate" in msg or "too many" in msg or "429" in msg:
+                if attempt < max_retries:
+                    time.sleep(2 + random.uniform(0, 1))
+                    continue
+            return None
+    return None
+
+
 def scan_stock(ticker, mcap_cache, counters):
     try:
-        df = yf.download(ticker, period="6mo", interval="1d",
-                         progress=False, auto_adjust=True)
-        if df.empty or len(df) < 100:
+        df = _download_with_retry(ticker)
+        if df is None or df.empty or len(df) < 100:
             counters["no_data"] += 1
             return None
         if isinstance(df.columns, pd.MultiIndex):
@@ -199,7 +228,7 @@ def run_scan():
 
     mcap_cache = load_mcap_cache()
     signals = []
-    workers = int(os.getenv("SCAN_WORKERS", "4"))
+    workers = int(os.getenv("SCAN_WORKERS", "2"))
     counters = {"no_data": 0, "price": 0, "volume": 0, "mcap": 0, "passed": 0}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
