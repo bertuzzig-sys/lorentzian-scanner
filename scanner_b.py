@@ -37,7 +37,7 @@ if not ALPACA_KEY or not ALPACA_SECRET:
 
 _client = StockHistoricalDataClient(ALPACA_KEY, ALPACA_SECRET) if ALPACA_KEY else None
 
-MIN_DAILY_VOLUME = 1_000_000
+MIN_DAILY_VOLUME = 100_000
 MIN_PRICE = 5.0
 
 
@@ -180,7 +180,7 @@ def run_scan():
     log.info("=== Lorentzian-only scan (Alpaca) started ===")
     send_alert("🔍 <b>Lorentzian Scanner B [LC]</b>\n"
                "Data: <b>Alpaca IEX</b> · Daily timeframe · Lorentzian only\n"
-               "<i>Filters: Lorentz flip + Vol&gt;1M/day + Price&gt;$5</i>")
+               "<i>Filters: Lorentz flip + Vol&gt;100K/day + Price&gt;$5</i>")
 
     if _client is None:
         send_alert("❌ Alpaca API keys missing — set ALPACA_API_KEY and ALPACA_API_SECRET in Railway env vars.")
@@ -214,7 +214,7 @@ def run_scan():
                   f"✅ Passed all filters: {counters['passed']}\n"
                   f"❌ No data / too short: {counters['no_data']}\n"
                   f"❌ Price &lt;$5: {counters['price']}\n"
-                  f"❌ Volume &lt;1M: {counters['volume']}")
+                  f"❌ Volume &lt;100K: {counters['volume']}")
     send_alert(filter_msg)
 
     buys  = [s for s in signals if s["side"] == "BUY"]
