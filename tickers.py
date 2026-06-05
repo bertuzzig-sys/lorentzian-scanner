@@ -20,6 +20,8 @@ EXCLUDED_TICKERS = {
     "BWXT", "CW", "CACI", "SAIC", "KBR", "BBAI", "ATRO",
     # Drones / eVTOL
     "ACHR", "JOBY",
+    # Defense data analytics (user request)
+    "PLTR",
 }
 
 
