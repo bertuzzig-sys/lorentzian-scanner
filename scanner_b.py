@@ -1,9 +1,14 @@
 """
-Lorentzian Scanner B — v3 with Phase 1 fixes
-- Lorentzian KNN with correct WT(10,11), 4-bar label horizon, normalized features
-- Weekly VWAP filter (re-introduced)
-- User exclusion list (oil, weapons, drones)
-- Alpaca IEX data source
+Lorentzian Scanner B — v5 TV-equivalent implementation
+=======================================================
+Fixes vs v4:
+- KNN: replaced sort-and-take-k with TV's distance-accumulation algorithm
+  (threshold grows as training loop iterates; skips every 4th bar)
+- Features: RSI/ADX normalized to [-1,1] (bounded), WT uses wt1 (not histogram)
+  normalized via tanh/60; CCI via tanh/100 — exactly matching Pine source
+- Volatility filter: ATR(1) > ATR(10)  [TV default: ON]
+- Regime filter: EMA(ohlc4,20) slope / ATR(10) > -0.1  [TV default: ON]
+- Early signal flip: stat counter only — NOT a signal gate (TV behaviour)
 """
 
 import os
@@ -54,18 +59,16 @@ def rsi(close, n=14):
     l = (-d.clip(upper=0)).ewm(alpha=1/n, adjust=False).mean()
     return 100 - 100 / (1 + g / l.replace(0, np.nan))
 
-def wt(high, low, close, cl=10, al=11):
+def wt1_series(high, low, close, cl=10, al=11):
     """
-    Wave Trend histogram (wt1 - wt2), matches TradingView Lorentzian Classification.
-    FIX vs v2: al was 21, now 11 per TV default; returns histogram, not wt1.
+    Wave Trend wt1 line (NOT the histogram).
+    TV Lorentzian uses wt1 as the raw WT feature, then normalises via tanh/60.
     """
     hlc3 = (high + low + close) / 3
     esa  = ema(hlc3, cl)
     d    = ema((hlc3 - esa).abs(), cl)
     ci   = (hlc3 - esa) / (0.015 * d.replace(0, np.nan))
-    wt1  = ema(ci, al)
-    wt2  = wt1.rolling(4).mean()
-    return wt1 - wt2
+    return ema(ci, al)
 
 def cci(high, low, close, n=20):
     tp  = (high + low + close) / 3
@@ -81,11 +84,20 @@ def adx(high, low, close, n=20):
     tr   = pd.concat([high-low,
                       (high-close.shift()).abs(),
                       (low-close.shift()).abs()], axis=1).max(axis=1)
-    atr  = tr.ewm(alpha=1/n, adjust=False).mean()
-    pdi  = 100 * pd.Series(pdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr
-    mdi  = 100 * pd.Series(mdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr
+    atr_ = tr.ewm(alpha=1/n, adjust=False).mean()
+    pdi  = 100 * pd.Series(pdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr_
+    mdi  = 100 * pd.Series(mdm, index=high.index).ewm(alpha=1/n, adjust=False).mean() / atr_
     dx   = 100 * (pdi-mdi).abs() / (pdi+mdi).replace(0, np.nan)
     return dx.ewm(alpha=1/n, adjust=False).mean()
+
+def atr_series(high, low, close, n):
+    """ATR using RMA (EWM alpha=1/n), matches Pine's ta.atr()."""
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low  - close.shift()).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/n, adjust=False).mean()
 
 
 def lorentzian_distance(a, b):
@@ -94,64 +106,96 @@ def lorentzian_distance(a, b):
 
 def lorentzian_signal(df, neighbors=8, max_bars_back=2000, label_horizon=4):
     """
-    Lorentzian KNN signal generator with TradingView-equivalent semantics.
+    Lorentzian KNN — v5, TV-equivalent.
 
-    CRITICAL v4 fix vs v3: SIGNAL STICKINESS.
-    -----------------------------------------
-    When KNN vote is 0 (tie), the signal now HOLDS its previous value instead of
-    resetting to 0. This matches Pine's:
-        signal := pred > 0 ? long : pred < 0 ? short : nz(signal[1])
-
-    Without stickiness, ties caused artificial "fresh flips" days after the true
-    flip — which is exactly why our scanner was firing on stale signals that
-    TradingView showed as having flipped days earlier.
-
-    Phase 1 fixes preserved: WT(10,11) histogram, 4-bar label horizon, normalized features.
+    Key algorithm (matches Pine / JS reference):
+    - For each bar i, iterate training bars oldest to newest, skipping bar if index % 4 == 0
+    - Maintain a sliding list (max size = neighbors) of (distance, label) pairs
+      where each new entry must have distance >= running threshold (lastDistance)
+    - When list overflows, raise threshold to list[round(neighbors*3/4)] and drop oldest
+    - Vote = sum of labels; filters applied before updating signal
+    - Signal is sticky: holds previous value when vote is 0 OR filters fail
     """
-    close = df["close"]; high = df["high"]; low = df["low"]
+    close = df["close"]; high = df["high"]; low = df["low"]; open_ = df["open"]
 
-    # Raw features
-    f1_raw = rsi(close, 14).fillna(50)
-    f2_raw = wt(high, low, close).fillna(0)
-    f3_raw = cci(high, low, close, 20).fillna(0)
-    f4_raw = adx(high, low, close, 20).fillna(20)
-    f5_raw = rsi(close, 9).fillna(50)
-
-    # Normalize to ~[0,1] so distance contributions are balanced
-    f1 = (f1_raw / 100.0).clip(0, 1)
-    f2 = (np.tanh(f2_raw / 50.0) + 1.0) / 2.0
-    f3 = (np.tanh(f3_raw / 200.0) + 1.0) / 2.0
-    f4 = (f4_raw / 100.0).clip(0, 1)
-    f5 = (f5_raw / 100.0).clip(0, 1)
+    # ── Feature series (TV defaults) ─────────────────────────────────────────
+    # Feature 1: RSI(14)  → bounded [-1, 1]
+    f1 = ((rsi(close, 14).fillna(50) / 100.0) * 2 - 1).clip(-1, 1)
+    # Feature 2: WT wt1(10,11) → tanh(x / 60)
+    f2 = np.tanh(wt1_series(high, low, close, 10, 11).fillna(0) / 60.0)
+    # Feature 3: CCI(20) → tanh(x / 100)
+    f3 = np.tanh(cci(high, low, close, 20).fillna(0) / 100.0)
+    # Feature 4: ADX(20) → bounded [-1, 1]
+    f4 = ((adx(high, low, close, 20).fillna(20) / 100.0) * 2 - 1).clip(-1, 1)
+    # Feature 5: RSI(9) → bounded [-1, 1]
+    f5 = ((rsi(close, 9).fillna(50) / 100.0) * 2 - 1).clip(-1, 1)
 
     features = np.column_stack([f1, f2, f3, f4, f5])
     n = len(features)
-    signals = np.zeros(n)
-    current_signal = 0  # sticky: holds last definitive +1/-1
+
+    # ── Training labels: +1 / -1 / 0 at bar i+4 ─────────────────────────────
+    y_train = np.zeros(n)
+    for i in range(n - label_horizon):
+        if   close.iloc[i + label_horizon] > close.iloc[i]: y_train[i] =  1
+        elif close.iloc[i + label_horizon] < close.iloc[i]: y_train[i] = -1
+
+    # ── Volatility filter: ATR(1) > ATR(10) ──────────────────────────────────
+    atr1  = atr_series(high, low, close, 1).values
+    atr10 = atr_series(high, low, close, 10).values
+
+    # ── Regime filter: EMA(ohlc4,20) slope / ATR(10) > -0.1 ─────────────────
+    ohlc4      = (open_ + high + low + close) / 4
+    ema20      = ema(ohlc4, 20).values
+    ema20_prev = np.concatenate([[np.nan], ema20[:-1]])
+    regime_val = np.where(
+        atr10 > 0,
+        ((ema20 - ema20_prev) / atr10) * 100,
+        np.nan
+    )
+
+    # ── KNN loop ──────────────────────────────────────────────────────────────
+    signals        = np.zeros(n)
+    current_signal = 0
 
     for i in range(50, n):
-        lb = min(i, max_bars_back)
-        pairs = []
-        for j in range(i - lb, i - label_horizon):
-            if j + label_horizon >= n:
-                break
+        train_end   = i - label_horizon
+        train_start = max(0, train_end - max_bars_back + 1)
+
+        last_distance   = -1.0
+        local_distances = []
+        local_preds     = []
+
+        for j in range(train_start, train_end + 1):
+            if j % 4 == 0:
+                continue                           # TV skips every 4th training bar
+
             dist = lorentzian_distance(features[i], features[j])
-            lbl  = 1 if close.iloc[j + label_horizon] > close.iloc[j] else -1
-            pairs.append((dist, lbl))
 
-        if not pairs:
-            signals[i] = current_signal
-            continue
+            if dist >= last_distance:
+                last_distance = dist
+                local_distances.append(dist)
+                local_preds.append(y_train[j])
 
-        pairs.sort()
-        vote = sum(l for _, l in pairs[:neighbors])
+                if len(local_preds) > neighbors:
+                    q_idx         = min(len(local_distances) - 1,
+                                        round(neighbors * 3 / 4))
+                    last_distance = local_distances[q_idx]
+                    local_distances.pop(0)
+                    local_preds.pop(0)
 
-        # STICKY signal: only update on a definitive non-zero vote
-        if vote > 0:
-            current_signal = 1
-        elif vote < 0:
-            current_signal = -1
-        # else: hold current_signal (Pine's nz(signal[1]))
+        vote = sum(local_preds)
+
+        # ── Filters ───────────────────────────────────────────────────────────
+        vol_ok    = bool(atr1[i] > atr10[i]) \
+                    if not (np.isnan(atr1[i]) or np.isnan(atr10[i])) else True
+        regime_ok = bool(regime_val[i] > -0.1) \
+                    if not np.isnan(regime_val[i]) else True
+        filters_ok = vol_ok and regime_ok
+
+        # Sticky signal: only update on definitive vote AND passing filters
+        if   vote > 0 and filters_ok: current_signal =  1
+        elif vote < 0 and filters_ok: current_signal = -1
+        # else: hold (Pine's nz(signal[1]))
 
         signals[i] = current_signal
 
@@ -160,11 +204,9 @@ def lorentzian_signal(df, neighbors=8, max_bars_back=2000, label_horizon=4):
 
 def is_early_signal_flip(sig, lookback=4):
     """
-    True if today's signal changed AND there was another change within the last
-    `lookback` bars. Matches TradingView's "Early Signal Flip" filter (on by default).
-
-    Rationale: clusters of flips in a few bars indicate noise/chop, not a clean
-    regime change. Filtering them out cuts whipsaw.
+    True if today's signal changed AND there was another change within `lookback` bars.
+    NOTE: TV tracks this as a stat only — it does NOT suppress the signal.
+    Used here purely for the Telegram counter.
     """
     if len(sig) < lookback + 2:
         return False
@@ -255,29 +297,26 @@ def scan_stock(ticker, counters):
 
         counters["passed"] += 1
 
-        # Lorentzian
+        # Lorentzian (volatility + regime filters now inside)
         sig      = lorentzian_signal(df)
         last_sig = sig.iloc[-1]
         prev_sig = sig.iloc[-2]
 
-        # Early Signal Flip filter — reject choppy back-to-back flips
+        # Early flip: stat counter only — does NOT block the signal (TV behaviour)
         if is_early_signal_flip(sig, lookback=4):
-            counters["early_flip_rejected"] += 1
-            return None
+            counters["early_flip"] += 1
 
-        # Buy: fresh flip to +1 AND price above weekly VWAP
+        # BUY: fresh flip to +1 AND price above weekly VWAP
         if last_sig == 1 and prev_sig != 1 and last_price > last_vwap:
             return {"side": "BUY", "ticker": ticker, "price": round(last_price, 2),
                     "vwap": round(last_vwap, 2)}
-        # Sell: fresh flip to -1 AND price below weekly VWAP
+        # SELL: fresh flip to -1 AND price below weekly VWAP
         if last_sig == -1 and prev_sig != -1 and last_price < last_vwap:
             return {"side": "SELL", "ticker": ticker, "price": round(last_price, 2),
                     "vwap": round(last_vwap, 2)}
 
-        # Track signals that were filtered out by VWAP
-        if last_sig == 1 and prev_sig != 1:
-            counters["vwap_rejected"] += 1
-        elif last_sig == -1 and prev_sig != -1:
+        # Track signals filtered out by VWAP only
+        if (last_sig == 1 and prev_sig != 1) or (last_sig == -1 and prev_sig != -1):
             counters["vwap_rejected"] += 1
 
         return None
@@ -290,10 +329,10 @@ def scan_stock(ticker, counters):
 # ── Main scan loop ────────────────────────────────────────────────────────────
 
 def run_scan():
-    log.info("=== Lorentzian v4 scan (sticky signal + early-flip filter) ===")
-    send_alert("🔍 <b>Lorentzian Scanner v4 [LC+VWAP]</b>\n"
-               "Data: <b>Alpaca IEX</b> · Daily · Sticky signal (TV-equivalent)\n"
-               "<i>Filters: Sticky Lorentz flip + Early-flip reject + Weekly VWAP + Vol&gt;100K + Price&gt;$5</i>\n"
+    log.info("=== Lorentzian v5 scan (TV-equivalent KNN + Vol/Regime filters) ===")
+    send_alert("🔍 <b>Lorentzian Scanner v5 [LC+VWAP]</b>\n"
+               "Data: <b>Alpaca IEX</b> · Daily · TV-equivalent KNN\n"
+               "<i>Filters: Vol/Regime (TV defaults) + Weekly VWAP + Vol&gt;100K + Price&gt;$5</i>\n"
                f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>")
 
     if _client is None:
@@ -308,7 +347,7 @@ def run_scan():
     signals = []
     workers = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {"no_data": 0, "price": 0, "volume": 0,
-                "passed": 0, "vwap_rejected": 0, "early_flip_rejected": 0}
+                "passed": 0, "vwap_rejected": 0, "early_flip": 0}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(scan_stock, t, counters): t for t in tickers}
@@ -333,7 +372,7 @@ def run_scan():
                   f"❌ No data: {counters['no_data']}\n"
                   f"❌ Price &lt;$5: {counters['price']}\n"
                   f"❌ Volume &lt;100K: {counters['volume']}\n"
-                  f"🟠 Rejected (Early Signal Flip / chop): {counters['early_flip_rejected']}\n"
+                  f"ℹ️ Early signal flip (stat only): {counters['early_flip']}\n"
                   f"🟡 Lorentz fired but rejected by VWAP: {counters['vwap_rejected']}")
     send_alert(filter_msg)
 
@@ -361,7 +400,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner v3 starting...")
+    log.info("Lorentzian Scanner v5 starting...")
     run_scan()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan)
