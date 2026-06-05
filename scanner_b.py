@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 MCAP_CACHE_FILE = "/tmp/mcap_cache_b.json"
 MCAP_MIN = 1_000_000_000
-MCAP_MAX = 100_000_000_000
+MCAP_MAX = 300_000_000_000
 MIN_DAILY_VOLUME = 1_000_000
 
 
@@ -192,7 +192,7 @@ def run_scan():
     log.info("=== Lorentzian-only scan started ===")
     send_alert("🔍 <b>Lorentzian Scanner B [LC]</b>\n"
                "Buy + Sell signals · Daily timeframe · No VWAP filter\n"
-               "<i>Filters: Lorentz flip + Mcap $1B-$50B + Vol&gt;1M/day</i>")
+               "<i>Filters: Lorentz flip + Mcap $1B-$300B + Vol&gt;1M/day</i>")
 
     tickers = list(set(get_sp500() + get_nasdaq100()))
     log.info("Total tickers: %d", len(tickers))
