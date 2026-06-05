@@ -94,30 +94,40 @@ def lorentzian_distance(a, b):
 
 def lorentzian_signal(df, neighbors=8, max_bars_back=2000, label_horizon=4):
     """
-    Lorentzian KNN signal generator. Phase 1 fixes:
-    - WT now uses (10, 11) and returns histogram (in wt function)
-    - Features normalized to roughly [0, 1] range so distance is balanced
-    - Label horizon is 4-bar forward (was 1-bar), matches TradingView default
+    Lorentzian KNN signal generator with TradingView-equivalent semantics.
+
+    CRITICAL v4 fix vs v3: SIGNAL STICKINESS.
+    -----------------------------------------
+    When KNN vote is 0 (tie), the signal now HOLDS its previous value instead of
+    resetting to 0. This matches Pine's:
+        signal := pred > 0 ? long : pred < 0 ? short : nz(signal[1])
+
+    Without stickiness, ties caused artificial "fresh flips" days after the true
+    flip — which is exactly why our scanner was firing on stale signals that
+    TradingView showed as having flipped days earlier.
+
+    Phase 1 fixes preserved: WT(10,11) histogram, 4-bar label horizon, normalized features.
     """
     close = df["close"]; high = df["high"]; low = df["low"]
 
-    # Raw indicator values
+    # Raw features
     f1_raw = rsi(close, 14).fillna(50)
     f2_raw = wt(high, low, close).fillna(0)
     f3_raw = cci(high, low, close, 20).fillna(0)
     f4_raw = adx(high, low, close, 20).fillna(20)
     f5_raw = rsi(close, 9).fillna(50)
 
-    # Normalize to roughly [0, 1] so all features contribute equally to distance
-    f1 = (f1_raw / 100.0).clip(0, 1)                        # RSI 14
-    f2 = (np.tanh(f2_raw / 50.0) + 1.0) / 2.0               # WT histogram → tanh squash
-    f3 = (np.tanh(f3_raw / 200.0) + 1.0) / 2.0              # CCI → tanh squash
-    f4 = (f4_raw / 100.0).clip(0, 1)                        # ADX
-    f5 = (f5_raw / 100.0).clip(0, 1)                        # RSI 9
+    # Normalize to ~[0,1] so distance contributions are balanced
+    f1 = (f1_raw / 100.0).clip(0, 1)
+    f2 = (np.tanh(f2_raw / 50.0) + 1.0) / 2.0
+    f3 = (np.tanh(f3_raw / 200.0) + 1.0) / 2.0
+    f4 = (f4_raw / 100.0).clip(0, 1)
+    f5 = (f5_raw / 100.0).clip(0, 1)
 
     features = np.column_stack([f1, f2, f3, f4, f5])
     n = len(features)
     signals = np.zeros(n)
+    current_signal = 0  # sticky: holds last definitive +1/-1
 
     for i in range(50, n):
         lb = min(i, max_bars_back)
@@ -128,13 +138,46 @@ def lorentzian_signal(df, neighbors=8, max_bars_back=2000, label_horizon=4):
             dist = lorentzian_distance(features[i], features[j])
             lbl  = 1 if close.iloc[j + label_horizon] > close.iloc[j] else -1
             pairs.append((dist, lbl))
+
         if not pairs:
+            signals[i] = current_signal
             continue
+
         pairs.sort()
         vote = sum(l for _, l in pairs[:neighbors])
-        signals[i] = 1 if vote > 0 else (-1 if vote < 0 else 0)
+
+        # STICKY signal: only update on a definitive non-zero vote
+        if vote > 0:
+            current_signal = 1
+        elif vote < 0:
+            current_signal = -1
+        # else: hold current_signal (Pine's nz(signal[1]))
+
+        signals[i] = current_signal
 
     return pd.Series(signals, index=df.index)
+
+
+def is_early_signal_flip(sig, lookback=4):
+    """
+    True if today's signal changed AND there was another change within the last
+    `lookback` bars. Matches TradingView's "Early Signal Flip" filter (on by default).
+
+    Rationale: clusters of flips in a few bars indicate noise/chop, not a clean
+    regime change. Filtering them out cuts whipsaw.
+    """
+    if len(sig) < lookback + 2:
+        return False
+    if sig.iloc[-1] == sig.iloc[-2]:
+        return False
+    for k in range(lookback):
+        idx_a = -2 - k
+        idx_b = -3 - k
+        if abs(idx_b) > len(sig):
+            break
+        if sig.iloc[idx_a] != sig.iloc[idx_b]:
+            return True
+    return False
 
 
 # ── Weekly VWAP ───────────────────────────────────────────────────────────────
@@ -217,6 +260,11 @@ def scan_stock(ticker, counters):
         last_sig = sig.iloc[-1]
         prev_sig = sig.iloc[-2]
 
+        # Early Signal Flip filter — reject choppy back-to-back flips
+        if is_early_signal_flip(sig, lookback=4):
+            counters["early_flip_rejected"] += 1
+            return None
+
         # Buy: fresh flip to +1 AND price above weekly VWAP
         if last_sig == 1 and prev_sig != 1 and last_price > last_vwap:
             return {"side": "BUY", "ticker": ticker, "price": round(last_price, 2),
@@ -242,10 +290,10 @@ def scan_stock(ticker, counters):
 # ── Main scan loop ────────────────────────────────────────────────────────────
 
 def run_scan():
-    log.info("=== Lorentzian v3 scan (Alpaca + VWAP + Phase 1 fixes) ===")
-    send_alert("🔍 <b>Lorentzian Scanner v3 [LC+VWAP]</b>\n"
-               "Data: <b>Alpaca IEX</b> · Daily · Phase 1 fixes\n"
-               "<i>Filters: Lorentz flip + Weekly VWAP + Vol&gt;100K + Price&gt;$5</i>\n"
+    log.info("=== Lorentzian v4 scan (sticky signal + early-flip filter) ===")
+    send_alert("🔍 <b>Lorentzian Scanner v4 [LC+VWAP]</b>\n"
+               "Data: <b>Alpaca IEX</b> · Daily · Sticky signal (TV-equivalent)\n"
+               "<i>Filters: Sticky Lorentz flip + Early-flip reject + Weekly VWAP + Vol&gt;100K + Price&gt;$5</i>\n"
                f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>")
 
     if _client is None:
@@ -260,7 +308,7 @@ def run_scan():
     signals = []
     workers = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {"no_data": 0, "price": 0, "volume": 0,
-                "passed": 0, "vwap_rejected": 0}
+                "passed": 0, "vwap_rejected": 0, "early_flip_rejected": 0}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(scan_stock, t, counters): t for t in tickers}
@@ -285,6 +333,7 @@ def run_scan():
                   f"❌ No data: {counters['no_data']}\n"
                   f"❌ Price &lt;$5: {counters['price']}\n"
                   f"❌ Volume &lt;100K: {counters['volume']}\n"
+                  f"🟠 Rejected (Early Signal Flip / chop): {counters['early_flip_rejected']}\n"
                   f"🟡 Lorentz fired but rejected by VWAP: {counters['vwap_rejected']}")
     send_alert(filter_msg)
 
