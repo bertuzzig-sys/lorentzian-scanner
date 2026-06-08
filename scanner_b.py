@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v6.2
+Lorentzian Scanner B — v6.2 (BUY+reentry)
 ===========================
 - Algorithm: advanced-ta LorentzianClassification (validated Python port of jdehorty's Pine Script)
 - Features: TV-default params (RSI 14/1, WT 10/11, CCI 20/1, ADX 20/2, RSI 9/1)
