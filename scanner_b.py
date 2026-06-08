@@ -203,7 +203,7 @@ def run_scan():
                 log.info("Progress: %d / %d", done, len(all_bars))
     log.info("Scan complete - %d signal(s).", len(signals))
     send_alert(
-        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price <$5: {counters['price']}\n❌ Volume <100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n�🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
+        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price &lt;$5: {counters['price']}\n❌ Volume &lt;100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n�🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
     )
     buys = [s for s in signals if s["type"] == "BUY"]
     reentries = [s for s in signals if s["type"] == "REENTRY"]
