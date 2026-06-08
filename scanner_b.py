@@ -6,6 +6,7 @@ Lorentzian Scanner B — v6
 - Filters: volatility + regime (TV defaults, ON) + weekly VWAP
 - Data: yfinance batch download (consolidated tape, ~50-ticker sequential chunks)
 - Alerts: Telegram with TradingView one-click links + vote strength
+- Vote filter: only fire on |vote| >= MIN_VOTE (default 4) — removes low-conviction noise
 - No Alpaca dependency
 """
 
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 
 MIN_DAILY_VOLUME = 100_000
 MIN_PRICE        = 5.0
+MIN_VOTE         = 4      # min KNN vote strength — filters low-conviction signals
 TV_BASE_URL      = "https://www.tradingview.com/chart/?symbol="
 
 
@@ -163,11 +165,11 @@ def scan_stock(ticker: str, df: pd.DataFrame, counters: dict):
         if bool(last.get("isEarlySignalFlip", False)):
             counters["early_flip"] += 1
 
-        if not pd.isna(last["startLongTrade"]) and last_price > last_vwap:
+        if not pd.isna(last["startLongTrade"]) and last_price > last_vwap and vote >= MIN_VOTE:
             return {"side": "BUY",  "ticker": ticker,
                     "price": round(last_price, 2), "vwap": round(last_vwap, 2),
                     "vote": vote}
-        if not pd.isna(last["startShortTrade"]) and last_price < last_vwap:
+        if not pd.isna(last["startShortTrade"]) and last_price < last_vwap and abs(vote) >= MIN_VOTE:
             return {"side": "SELL", "ticker": ticker,
                     "price": round(last_price, 2), "vwap": round(last_vwap, 2),
                     "vote": vote}
