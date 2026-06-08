@@ -8,6 +8,7 @@ Lorentzian Scanner B — v6.3 (BUY+reentry, vote-gated)
 - BUY ONLY: SELL signals removed — only long signals are sent
 - Re-entry alerts: stocks with active buy signal pulling back near VWAP (dip opportunity)
 - Re-entry requires vote >= MIN_VOTE (KNN must be actively bullish, not just sticky)
+- Re-entry capped at top 15 closest to VWAP (keeps Telegram messages short)
 - Data: yfinance batch download (consolidated tape, ~50-ticker sequential chunks)
 - Alerts: Telegram with TradingView one-click links + vote strength
 - Lock: fcntl file lock prevents duplicate scans on overlapping deploys
@@ -41,6 +42,7 @@ MIN_DAILY_VOLUME  = 100_000
 MIN_PRICE         = 5.0
 MIN_VOTE          = 4        # min KNN vote to fire a signal
 REENTRY_VWAP_PCT  = 0.03     # re-entry if price is within 3% above weekly VWAP
+REENTRY_MAX_SHOW  = 15       # cap re-entries shown (closest to VWAP first)
 TV_BASE_URL       = "https://www.tradingview.com/chart/?symbol="
 LOCK_FILE         = "/tmp/lorentzian_scan.lock"
 
@@ -178,7 +180,7 @@ def run_scan():
         "🔍 <b>Lorentzian Scanner V6.3 [LC+VWAP]</b>\n"
         "Data: <b>yfinance</b> · Daily · consolidated tape\n"
         "<i>Algorithm: advanced-ta · BUY signals only</i>\n"
-        "<i>Filters: Volatility + Regime + Weekly VWAP + Vote ≥ 4</i>\n"
+        "<i>Filters: Volatility + Regime + Weekly VWAP + Vote >= 4</i>\n"
         f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>"
     )
     raw_tickers = list(set(get_sp500() + get_nasdaq100()))
@@ -203,7 +205,7 @@ def run_scan():
                 log.info("Progress: %d / %d", done, len(all_bars))
     log.info("Scan complete - %d signal(s).", len(signals))
     send_alert(
-        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price &lt;$5: {counters['price']}\n❌ Volume &lt;100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n�🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
+        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price &lt;$5: {counters['price']}\n❌ Volume &lt;100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
     )
     buys = [s for s in signals if s["type"] == "BUY"]
     reentries = [s for s in signals if s["type"] == "REENTRY"]
@@ -216,8 +218,13 @@ def run_scan():
                 msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · vote {s["vote"]:+d}\n'
             msg += "\n"
         if reentries:
-            msg += "🔄 <b>RE-ENTRY</b> (still long, KNN bullish ≥+4, near VWAP dip):\n"
-            for s in sorted(reentries, key=lambda x: x["pct"]):
+            all_reentries = sorted(reentries, key=lambda x: x["pct"])
+            top = all_reentries[:REENTRY_MAX_SHOW]
+            total = len(all_reentries)
+            shown = len(top)
+            count_label = f"top {shown}/{total}" if total > shown else str(shown)
+            msg += f"🔄 <b>RE-ENTRY</b> (KNN bullish, near VWAP — {count_label}):\n"
+            for s in top:
                 tv = f'{TV_BASE_URL}{s["ticker"]}'
                 msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · {s["pct"]}% above · vote {s["vote"]:+d}\n'
             msg += "\n"
