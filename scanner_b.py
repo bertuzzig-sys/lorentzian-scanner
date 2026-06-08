@@ -7,13 +7,16 @@ Lorentzian Scanner B — v6.3 (BUY+reentry, vote-gated)
 - Vote filter: only fire on vote >= MIN_VOTE (default 4) — removes low-conviction noise
 - BUY ONLY: SELL signals removed — only long signals are sent
 - Re-entry alerts: stocks with active buy signal pulling back near VWAP (dip opportunity)
+- Re-entry requires vote >= MIN_VOTE (KNN must be actively bullish, not just sticky)
 - Data: yfinance batch download (consolidated tape, ~50-ticker sequential chunks)
 - Alerts: Telegram with TradingView one-click links + vote strength
+- Lock: fcntl file lock prevents duplicate scans on overlapping deploys
 - No Alpaca dependency
 """
 
 import os
 import time
+import fcntl
 import schedule
 import logging
 import concurrent.futures
@@ -39,6 +42,22 @@ MIN_PRICE         = 5.0
 MIN_VOTE          = 4        # min KNN vote to fire a signal
 REENTRY_VWAP_PCT  = 0.03     # re-entry if price is within 3% above weekly VWAP
 TV_BASE_URL       = "https://www.tradingview.com/chart/?symbol="
+LOCK_FILE         = "/tmp/lorentzian_scan.lock"
+
+
+def run_scan_locked():
+    """Run scan with an exclusive file lock — skips if another scan is already running."""
+    try:
+        lock = open(LOCK_FILE, "w")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log.warning("Another scan is already running — skipping this trigger.")
+        return
+    try:
+        run_scan()
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
 
 
 def fetch_all_bars(tickers, days=365):
@@ -136,7 +155,7 @@ def scan_stock(ticker, df, counters):
         # Fresh BUY
         if not pd.isna(last["startLongTrade"]) and last_price > last_vwap and vote >= MIN_VOTE:
             return {"type": "BUY", "ticker": ticker, "price": round(last_price, 2), "vwap": round(last_vwap, 2), "vote": vote}
-        # Re-entry: signal already long, KNN still bullish, price near VWAP, green candle today
+        # Re-entry: signal long AND KNN still bullish (vote >= MIN_VOTE), price near VWAP, green candle
         if signal == 1:
             pct_above_vwap = (last_price - last_vwap) / last_vwap
             prev_close = float(df["close"].iloc[-2])
@@ -156,7 +175,7 @@ def scan_stock(ticker, df, counters):
 def run_scan():
     log.info("=== Lorentzian v6.3 scan (BUY only + vote-gated re-entry) ===")
     send_alert(
-        "🔍 <b>Lorentzian Scanner v6.3 [LC+VWAP]</b>\n"
+        "🔍 <b>Lorentzian Scanner V6.3 [LC+VWAP]</b>\n"
         "Data: <b>yfinance</b> · Daily · consolidated tape\n"
         "<i>Algorithm: advanced-ta · BUY signals only</i>\n"
         "<i>Filters: Volatility + Regime + Weekly VWAP + Vote ≥ 4</i>\n"
@@ -171,7 +190,7 @@ def run_scan():
     signals = []
     workers = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {"no_data": no_data_count, "price": 0, "volume": 0, "passed": 0, "vwap_rejected": 0, "early_flip": 0, "reentry": 0}
-    with concurrent.futures.ThreadPoolExecutor(max_workers) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(scan_stock, sym, df, counters): sym for sym, df in all_bars.items()}
         done = 0
         for future in concurrent.futures.as_completed(futures):
@@ -184,14 +203,14 @@ def run_scan():
                 log.info("Progress: %d / %d", done, len(all_bars))
     log.info("Scan complete - %d signal(s).", len(signals))
     send_alert(
-        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price <$5: {counters['price']}\n❌ Volume <100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
+        f"📊 <b>[LC+VWAP] Filter breakdown</b>\nTotal: {len(raw_tickers)}\n🚫 Excluded: {excluded_count}\n📥 Scanned: {len(tickers)}\n✅ Passed price/vol: {counters['passed']}\n❌ No data: {counters['no_data']}\n❌ Price <$5: {counters['price']}\n❌ Volume <100K: {counters['volume']}\nℹ️ Early flip (stat): {counters['early_flip']}\n�🟡 VWAP rejected: {counters['vwap_rejected']}\n🔄 Re-entry alerts: {counters['reentry']}"
     )
     buys = [s for s in signals if s["type"] == "BUY"]
     reentries = [s for s in signals if s["type"] == "REENTRY"]
     if buys or reentries:
         msg = "🎯 <b>[LC+VWAP] SIGNALS</b>\n\n"
         if buys:
-            msg += "🟢'Q <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
+            msg += "🟢 <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
             for s in buys:
                 tv = f'{TV_BASE_URL}{s["ticker"]}'
                 msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · vote {s["vote"]:+d}\n'
@@ -199,7 +218,7 @@ def run_scan():
         if reentries:
             msg += "🔄 <b>RE-ENTRY</b> (still long, KNN bullish ≥+4, near VWAP dip):\n"
             for s in sorted(reentries, key=lambda x: x["pct"]):
-                tv = f'{TVBASE_URL}{s["ticker"]}'
+                tv = f'{TV_BASE_URL}{s["ticker"]}'
                 msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · {s["pct"]}% above · vote {s["vote"]:+d}\n'
             msg += "\n"
         msg += f"<i>Scanned {len(tickers)} stocks · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>"
@@ -210,9 +229,9 @@ def run_scan():
 
 if __name__ == "__main__":
     log.info("Lorentzian Scanner V6.3 starting...")
-    run_scan()
+    run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
-    schedule.every().day.at(schedule_time).do(run_scan)
+    schedule.every().day.at(schedule_time).do(run_scan_locked)
     log.info("Next scheduled run at %s UTC daily.", schedule_time)
     while True:
         schedule.run_pending()
