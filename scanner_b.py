@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v6.2 (BUY+reentry)
+Lorentzian Scanner B — v6.3 (BUY+reentry, vote-gated)
 ===========================
 - Algorithm: advanced-ta LorentzianClassification (validated Python port of jdehorty's Pine Script)
 - Features: TV-default params (RSI 14/1, WT 10/11, CCI 20/1, ADX 20/2, RSI 9/1)
@@ -136,12 +136,12 @@ def scan_stock(ticker, df, counters):
         # Fresh BUY
         if not pd.isna(last["startLongTrade"]) and last_price > last_vwap and vote >= MIN_VOTE:
             return {"type": "BUY", "ticker": ticker, "price": round(last_price, 2), "vwap": round(last_vwap, 2), "vote": vote}
-        # Re-entry: signal already long, price near VWAP (within 3%), green candle today
+        # Re-entry: signal already long, KNN still bullish, price near VWAP, green candle today
         if signal == 1:
             pct_above_vwap = (last_price - last_vwap) / last_vwap
             prev_close = float(df["close"].iloc[-2])
             recovering = last_price > prev_close
-            if 0 < pct_above_vwap <= REENTRY_VWAP_PCT and recovering:
+            if 0 < pct_above_vwap <= REENTRY_VWAP_PCT and recovering and vote >= MIN_VOTE:
                 counters["reentry"] += 1
                 return {"type": "REENTRY", "ticker": ticker, "price": round(last_price, 2), "vwap": round(last_vwap, 2), "pct": round(pct_above_vwap * 100, 1), "vote": vote}
         if not pd.isna(last["startLongTrade"]) and vote >= MIN_VOTE:
@@ -154,9 +154,9 @@ def scan_stock(ticker, df, counters):
 
 
 def run_scan():
-    log.info("=== Lorentzian v6.2 scan (BUY only + re-entry alerts) ===")
+    log.info("=== Lorentzian v6.3 scan (BUY only + vote-gated re-entry) ===")
     send_alert(
-        "🔍 <b>Lorentzian Scanner v6.2 [LC+VWAP]</b>\n"
+        "🔍 <b>Lorentzian Scanner v6.3 [LC+VWAP]</b>\n"
         "Data: <b>yfinance</b> · Daily · consolidated tape\n"
         "<i>Algorithm: advanced-ta · BUY signals only</i>\n"
         "<i>Filters: Volatility + Regime + Weekly VWAP + Vote ≥ 4</i>\n"
@@ -171,7 +171,7 @@ def run_scan():
     signals = []
     workers = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {"no_data": no_data_count, "price": 0, "volume": 0, "passed": 0, "vwap_rejected": 0, "early_flip": 0, "reentry": 0}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers) as pool:
         futures = {pool.submit(scan_stock, sym, df, counters): sym for sym, df in all_bars.items()}
         done = 0
         for future in concurrent.futures.as_completed(futures):
@@ -191,16 +191,16 @@ def run_scan():
     if buys or reentries:
         msg = "🎯 <b>[LC+VWAP] SIGNALS</b>\n\n"
         if buys:
-            msg += "🟢 <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
+            msg += "🟢'Q <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
             for s in buys:
                 tv = f'{TV_BASE_URL}{s["ticker"]}'
-                msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · vote +{s["vote"]}\n'
+                msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · vote {s["vote"]:+d}\n'
             msg += "\n"
         if reentries:
-            msg += "🔄 <b>RE-ENTRY</b> (still long, pulled back near VWAP - dip opportunity):\n"
+            msg += "🔄 <b>RE-ENTRY</b> (still long, KNN bullish ≥+4, near VWAP dip):\n"
             for s in sorted(reentries, key=lambda x: x["pct"]):
-                tv = f'{TV_BASE_URL}{s["ticker"]}'
-                msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · {s["pct"]}% above · vote +{s["vote"]}\n'
+                tv = f'{TVBASE_URL}{s["ticker"]}'
+                msg += f'<a href="{tv}"><b>{s["ticker"]}</b></a> ${s["price"]} · vwap ${s["vwap"]} · {s["pct"]}% above · vote {s["vote"]:+d}\n'
             msg += "\n"
         msg += f"<i>Scanned {len(tickers)} stocks · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>"
         send_alert(msg)
@@ -209,7 +209,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner v6.2 starting...")
+    log.info("Lorentzian Scanner V6.3 starting...")
     run_scan()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan)
