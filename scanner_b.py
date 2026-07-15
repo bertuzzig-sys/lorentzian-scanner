@@ -1,14 +1,14 @@
 """
-Lorentzian Scanner B â v9.0 (Noise Reduction + Quant Filters)
+Lorentzian Scanner B — v9.0 (Noise Reduction + Quant Filters)
 ===========================
 Changes from v8.0:
 - RE-ENTRY signals removed: fresh Lorentzian flips only (no more VWAP re-log noise)
 - Max 10 concurrent open positions: no new signals when book is full
 - Sector cap: 1 signal per sector per scan (no 5 bank signals in one day)
-- Entry day momentum: stock must be up â¥ 0.5% on the entry day (no flat/red entries)
+- Entry day momentum: stock must be up ≥ 0.5% on the entry day (no flat/red entries)
 - Stop loss exit price capped at exactly -4% (gap-down blowthrough fix)
-- Put/Call ratio overlay: P/C < 0.70 (GREED) â vote â¥ 8 always + half size warning
-                          P/C > 1.00 (FEAR)  â vote â¥ 6 even in BEAR (buy the panic)
+- Put/Call ratio overlay: P/C < 0.70 (GREED) → vote ≥ 8 always + half size warning
+                          P/C > 1.00 (FEAR)  → vote ≥ 6 even in BEAR (buy the panic)
 """
 
 import os
@@ -38,28 +38,28 @@ log = logging.getLogger(__name__)
 MIN_DAILY_VOLUME   = 100_000
 MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
-BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) â raise bar
+BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
 SPY_EMA_PERIOD     = 21       # candles for SPY regime EMA
-STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down â¥ 4%
-VOLUME_MIN_RATIO   = 0.80     # today's volume must be â¥ 80% of 20-day avg
+STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
+VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
-MIN_ENTRY_MOMENTUM = 0.005    # stock must be up â¥ 0.5% on entry day (no flat/red buys)
+MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
 MAX_OPEN_POSITIONS = 10       # no new signals when 10 positions already open
 EXIT_DAYS          = 5        # flag for review after N trading days
 TV_BASE_URL        = "https://www.tradingview.com/chart/?symbol="
 LOCK_FILE          = "/tmp/lorentzian_scan.lock"
 
 # Put/Call ratio thresholds
-PC_GREED = 0.70   # below = everyone is bullish â be defensive
-PC_FEAR  = 1.00   # above = panic â be aggressive (buy)
+PC_GREED = 0.70   # below = everyone is bullish → be defensive
+PC_FEAR  = 1.00   # above = panic → be aggressive (buy)
 
-# Derived at runtime â set in run_scan() after SPY + P/C checks
+# Derived at runtime — set in run_scan() after SPY + P/C checks
 MIN_VOTE   = BULL_MIN_VOTE
 SPY_REGIME = "BULL"    # updated each run
 PC_RATIO   = 0.85      # updated each run
 PC_REGIME  = "NEUTRAL" # GREED / NEUTRAL / FEAR
 
-# Shared LC params â defined once, reused in scan_stock + check_exit_signal
+# Shared LC params — defined once, reused in scan_stock + check_exit_signal
 _LC_FEATURES = [
     LorentzianClassification.Feature("RSI", 14, 1),
     LorentzianClassification.Feature("WT",  10, 11),
@@ -77,7 +77,7 @@ _LC_FILTERS = LorentzianClassification.FilterSettings(
 )
 
 
-# ââ Helpers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_spy_regime(all_bars: dict) -> tuple[str, float, float]:
     """
@@ -153,7 +153,7 @@ def get_put_call_ratio() -> float:
                     return val
         except Exception as exc:
             log.debug("P/C fetch error (%s): %s", sym, exc)
-    log.warning("Could not fetch P/C ratio â using neutral 0.85")
+    log.warning("Could not fetch P/C ratio — using neutral 0.85")
     return 0.85
 
 
@@ -176,12 +176,12 @@ def get_sector(ticker: str) -> str:
 
 
 def run_scan_locked():
-    """Run scan with an exclusive file lock â skips if another scan is already running."""
+    """Run scan with an exclusive file lock — skips if another scan is already running."""
     try:
         lock = open(LOCK_FILE, "w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        log.warning("Another scan is already running â skipping this trigger.")
+        log.warning("Another scan is already running — skipping this trigger.")
         return
     try:
         run_scan()
@@ -272,10 +272,10 @@ def check_exit_signal(ticker: str, df) -> dict | None:
         return None
 
 
-# ââ Core scanner ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Core scanner ──────────────────────────────────────────────────────────────
 
 def _size_label(vote: int) -> str:
-    return "ð¥ LARGE" if vote >= 8 else "ð STANDARD"
+    return "🔥 LARGE" if vote >= 8 else "📊 STANDARD"
 
 
 def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
@@ -290,21 +290,21 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
             counters["volume"] += 1
             return None
 
-        # ââ Volume confirmation: today's vol â¥ 80% of 20-day avg âââââââââââââ
+        # ── Volume confirmation: today's vol ≥ 80% of 20-day avg ─────────────
         if len(df) >= 21:
             avg_vol_20 = float(df["volume"].iloc[-21:-1].mean())
             if avg_vol_20 > 0 and daily_vol < VOLUME_MIN_RATIO * avg_vol_20:
                 counters["low_volume"] += 1
                 return None
 
-        # ââ Relative strength: must beat SPY 1-day return ââââââââââââââââââââ
+        # ── Relative strength: must beat SPY 1-day return ────────────────────
         prev_close  = float(df["close"].iloc[-2]) if len(df) >= 2 else last_price
         stock_1d    = (last_price - prev_close) / prev_close if prev_close else 0
         if stock_1d <= spy_1d_return:
             counters["rs_fail"] += 1
             return None
 
-        # ââ Entry day momentum: stock must be up â¥ 0.5% (no flat/red entries) â
+        # ── Entry day momentum: stock must be up ≥ 0.5% (no flat/red entries) ─
         if stock_1d < MIN_ENTRY_MOMENTUM:
             counters["momentum_fail"] += 1
             return None
@@ -330,7 +330,7 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
                 "vote": vote, "stop": stop_price, "size": _size_label(vote),
             }
 
-        # Re-entries removed in v9.0 â fresh flips only
+        # Re-entries removed in v9.0 — fresh flips only
         if not pd.isna(last["startLongTrade"]) and vote >= MIN_VOTE:
             counters["vwap_rejected"] += 1
 
@@ -341,20 +341,20 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
         return None
 
 
-# ââ Main scan âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Main scan ─────────────────────────────────────────────────────────────────
 
 def run_scan():
     global MIN_VOTE, SPY_REGIME, PC_RATIO, PC_REGIME
 
-    # Skip weekends â markets are closed
+    # Skip weekends — markets are closed
     if date.today().weekday() >= 5:  # 5 = Saturday, 6 = Sunday
-        log.info("Weekend (%s) â skipping scan.", date.today().strftime("%A"))
+        log.info("Weekend (%s) — skipping scan.", date.today().strftime("%A"))
         return
 
     scan_date = date.today().isoformat()
-    log.info("=== Lorentzian v9.0 scan â %s ===", scan_date)
+    log.info("=== Lorentzian v9.0 scan — %s ===", scan_date)
 
-    # ââ 1. Load open positions from Sheets âââââââââââââââââââââââââââââââââââ
+    # ── 1. Load open positions from Sheets ───────────────────────────────────
     open_positions, ws = sheets_logger.get_open_positions()
     # Dedup: keep only the first (earliest) row per ticker
     seen: set[str] = set()
@@ -362,13 +362,13 @@ def run_scan():
     open_tickers = {p["ticker"] for p in open_positions}
     log.info("Monitoring %d open positions for exits", len(open_positions))
 
-    # ââ 2. Build universe âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 2. Build universe ─────────────────────────────────────────────────────
     raw_tickers    = list(set(get_sp500() + get_nasdaq100()))
     tickers        = filter_excluded(raw_tickers)
     excluded_count = len(raw_tickers) - len(tickers)
     log.info("Universe: %d tickers (%d excluded)", len(tickers), excluded_count)
 
-    # ââ 3. Download all bars ââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 3. Download all bars ──────────────────────────────────────────────────
     all_bars = fetch_all_bars(tickers)
 
     # Download any open-position tickers not in the main universe
@@ -379,26 +379,26 @@ def run_scan():
 
     no_data_count = sum(1 for t in tickers if t not in all_bars)
 
-    # ââ 4. Market regime (SPY 21-EMA + Put/Call ratio) âââââââââââââââââââââââ
+    # ── 4. Market regime (SPY 21-EMA + Put/Call ratio) ───────────────────────
     SPY_REGIME, spy_1d_return, spy_ema = get_spy_regime(all_bars)
     spy_df   = all_bars.get("SPY")
     spy_last = float(spy_df["close"].iloc[-1]) if spy_df is not None else 0
 
-    # P/C ratio overlay â adjusts vote threshold on top of SPY regime
+    # P/C ratio overlay — adjusts vote threshold on top of SPY regime
     PC_RATIO = get_put_call_ratio()
     if PC_RATIO < PC_GREED:
         PC_REGIME = "GREED"
-        MIN_VOTE  = BEAR_MIN_VOTE   # everyone bullish â be defensive, raise bar
+        MIN_VOTE  = BEAR_MIN_VOTE   # everyone bullish → be defensive, raise bar
     elif PC_RATIO > PC_FEAR:
         PC_REGIME = "FEAR"
-        MIN_VOTE  = BULL_MIN_VOTE   # everyone fearful â be aggressive, lower bar
+        MIN_VOTE  = BULL_MIN_VOTE   # everyone fearful → be aggressive, lower bar
     else:
         PC_REGIME = "NEUTRAL"
         MIN_VOTE  = BULL_MIN_VOTE if SPY_REGIME == "BULL" else BEAR_MIN_VOTE
 
-    pc_icon = {"GREED": "ð¡ GREED", "NEUTRAL": "âª NEUTRAL", "FEAR": "ð¢ FEAR"}[PC_REGIME]
+    pc_icon = {"GREED": "🟡 GREED", "NEUTRAL": "⚪ NEUTRAL", "FEAR": "🟢 FEAR"}[PC_REGIME]
     log.info("SPY regime: %s (close=%.2f ema=%.2f)", SPY_REGIME, spy_last, spy_ema)
-    log.info("P/C ratio: %.2f â %s | Final MIN_VOTE=%d", PC_RATIO, PC_REGIME, MIN_VOTE)
+    log.info("P/C ratio: %.2f → %s | Final MIN_VOTE=%d", PC_RATIO, PC_REGIME, MIN_VOTE)
 
     # Pre-load sectors for open positions (to enforce sector cap on new signals)
     open_sectors: set[str] = set()
@@ -409,19 +409,19 @@ def run_scan():
     log.info("Open sectors: %s", sorted(open_sectors))
 
     send_alert(
-        f"ð <b>Lorentzian Scanner V9.0 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.0 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
-        f"<i>Algorithm: advanced-ta Â· FRESH BUY signals only</i>\n"
-        f"<i>SPY: {'ð¢ BULL' if SPY_REGIME == 'BULL' else 'ð´ BEAR'} "
+        f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
+        f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
-        f"<i>P/C Ratio: {PC_RATIO:.2f} â {pc_icon}</i>\n"
-        f"<i>Final Vote threshold: â¥ {MIN_VOTE}</i>\n"
+        f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon}</i>\n"
+        f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
         f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
-        f"<i>Risk: Stop â{int(STOP_LOSS_PCT*100)}% Â· Max {MAX_OPEN_POSITIONS} positions Â· Hold {EXIT_DAYS}d</i>\n"
+        f"<i>Risk: stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
         f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>"
     )
 
-    # ââ 5. Scan for BUY signals âââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 5. Scan for BUY signals ───────────────────────────────────────────────
     workers  = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {
         "no_data": no_data_count, "price": 0, "volume": 0,
@@ -448,9 +448,9 @@ def run_scan():
             if done % 50 == 0:
                 log.info("Progress: %d / %d", done, len(futures))
 
-    # ââ 6. Dedup + earnings + position cap + sector cap ââââââââââââââââââââââ
+    # ── 6. Dedup + earnings + position cap + sector cap ──────────────────────
     available_slots = max(0, MAX_OPEN_POSITIONS - len(open_tickers))
-    log.info("Open positions: %d / %d Â· Available slots: %d",
+    log.info("Open positions: %d / %d · Available slots: %d",
              len(open_tickers), MAX_OPEN_POSITIONS, available_slots)
 
     signals      = []
@@ -465,7 +465,7 @@ def run_scan():
 
         # 2. Skip if at position cap
         if available_slots <= 0:
-            log.info("[CAP SKIP] %s â book full (%d positions)", sig["ticker"], MAX_OPEN_POSITIONS)
+            log.info("[CAP SKIP] %s — book full (%d positions)", sig["ticker"], MAX_OPEN_POSITIONS)
             counters["cap_skip"] += 1
             continue
 
@@ -487,13 +487,13 @@ def run_scan():
         if sector != "Unknown":
             today_sectors.add(sector)
 
-    log.info("Scan complete â %d signal(s) (%d earnings / %d dedup / %d cap / %d sector skipped).",
+    log.info("Scan complete — %d signal(s) (%d earnings / %d dedup / %d cap / %d sector skipped).",
              len(signals), counters["earnings_skip"], counters["dedup_skip"],
              counters["cap_skip"], counters["sector_skip"])
 
-    # ââ 7. Exit detection âââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    hard_exits   = []   # ð´ signal flipped OR stop loss hit
-    review_flags = []   # â° 5-day hold, still bullish â review suggested
+    # ── 7. Exit detection ─────────────────────────────────────────────────────
+    hard_exits   = []   # 🔴 signal flipped OR stop loss hit
+    review_flags = []   # ⏰ 5-day hold, still bullish — review suggested
 
     for pos in open_positions:
         ticker     = pos["ticker"]
@@ -501,11 +501,11 @@ def run_scan():
         cur_price  = state["price"] if state else pos["entry_price"]
         pnl        = round((cur_price - pos["entry_price"]) / pos["entry_price"] * 100, 2)
 
-        # Hard stop loss â cap exit price at exactly entry*(1-4%) to prevent gap-down blowthrough
+        # Hard stop loss — cap exit price at exactly entry*(1-4%) to prevent gap-down blowthrough
         if pnl <= -(STOP_LOSS_PCT * 100):
             cur_price   = round(pos["entry_price"] * (1 - STOP_LOSS_PCT), 2)
             pnl         = round(-STOP_LOSS_PCT * 100, 2)
-            exit_reason = f"ð stop loss hit (â{int(STOP_LOSS_PCT*100)}%)"
+            exit_reason = f"🛑 stop loss hit (−{int(STOP_LOSS_PCT*100)}%)"
         elif state is None:
             exit_reason = "no data / dropped from universe"
         elif state["signal"] == 0 or state["vote"] < 0:
@@ -533,40 +533,40 @@ def run_scan():
                 "row_idx":     pos["row_idx"],
             })
 
-    # ââ 8. Format & send Telegram âââââââââââââââââââââââââââââââââââââââââââââ
+    # ── 8. Format & send Telegram ─────────────────────────────────────────────
     buys      = [s for s in signals if s["type"] == "BUY"]
-    reentries = []   # removed in v9.0 â fresh flips only
+    reentries = []   # removed in v9.0 — fresh flips only
 
     # Filter breakdown
     send_alert(
-        f"ð <b>[LC+VWAP v9.0] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.0] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
-        f"ð« Excluded: {excluded_count}\n"
-        f"ð¥ Scanned: {len(tickers)}\n"
-        f"â No data: {counters['no_data']}\n"
-        f"â Price &lt;$5: {counters['price']}\n"
-        f"â Volume &lt;100K: {counters['volume']}\n"
-        f"â Low vol (20d avg): {counters['low_volume']}\n"
-        f"â RS vs SPY: {counters['rs_fail']}\n"
-        f"â Momentum &lt;0.5%: {counters['momentum_fail']}\n"
-        f"â Near earnings: {counters['earnings_skip']}\n"
-        f"â Already open (dedup): {counters['dedup_skip']}\n"
-        f"â Position cap (â¥{MAX_OPEN_POSITIONS}): {counters['cap_skip']}\n"
-        f"â Sector cap: {counters['sector_skip']}\n"
-        f"â Passed all filters: {counters['passed']}\n"
-        f"â¹ï¸ Early flip (stat): {counters['early_flip']}\n"
-        f"ð¡ VWAP rejected: {counters['vwap_rejected']}\n"
-        f"ð Open positions: {len(open_tickers)} / {MAX_OPEN_POSITIONS}"
+        f"🚫 Excluded: {excluded_count}\n"
+        f"📥 Scanned: {len(tickers)}\n"
+        f"❌ No data: {counters['no_data']}\n"
+        f"❌ Price &lt;$5: {counters['price']}\n"
+        f"❌ Volume &lt;100K: {counters['volume']}\n"
+        f"❌ Low vol (20d avg): {counters['low_volume']}\n"
+        f"❌ RS vs SPY: {counters['rs_fail']}\n"
+        f"❌ Momentum &lt;0.5%: {counters['momentum_fail']}\n"
+        f"❌ Near earnings: {counters['earnings_skip']}\n"
+        f"❌ Already open (dedup): {counters['dedup_skip']}\n"
+        f"❌ Position cap (≥{MAX_OPEN_POSITIONS}): {counters['cap_skip']}\n"
+        f"❌ Sector cap: {counters['sector_skip']}\n"
+        f"✅ Passed all filters: {counters['passed']}\n"
+        f"ℹ️ Early flip (stat): {counters['early_flip']}\n"
+        f"🟡 VWAP rejected: {counters['vwap_rejected']}\n"
+        f"📋 Open positions: {len(open_tickers)} / {MAX_OPEN_POSITIONS}"
     )
 
     # Main signals message
-    spy_icon = "ð¢ BULL" if SPY_REGIME == "BULL" else "ð´ BEAR"
-    msg = (f"ð¯ <b>[LC+VWAP v9.0] SIGNALS</b>\n"
+    spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
+    msg = (f"🎯 <b>[LC+VWAP v9.0] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
-    # â Exit section â
+    # — Exit section —
     if hard_exits:
-        msg += "ð´ <b>EXIT ALERTS</b> (sell / stop hit):\n"
+        msg += "🔴 <b>EXIT ALERTS</b> (sell / stop hit):\n"
         for e in hard_exits:
             pnl_s = f"+{e['pnl']}%" if e["pnl"] >= 0 else f"{e['pnl']}%"
             tv    = f'{TV_BASE_URL}{e["ticker"]}'
@@ -579,7 +579,7 @@ def run_scan():
     if review_flags:
         shown   = review_flags[:MAX_REVIEW_SHOWN]
         skipped = len(review_flags) - len(shown)
-        msg += f"â° <b>{EXIT_DAYS}-DAY REVIEW</b> (still bullish â consider taking profit):\n"
+        msg += f"⏰ <b>{EXIT_DAYS}-DAY REVIEW</b> (still bullish — consider taking profit):\n"
         for e in shown:
             pnl_s = f"+{e['pnl']}%" if e["pnl"] >= 0 else f"{e['pnl']}%"
             tv    = f'{TV_BASE_URL}{e["ticker"]}'
@@ -591,11 +591,11 @@ def run_scan():
         msg += "\n"
 
     if open_positions and not hard_exits and not review_flags:
-        msg += "â <b>All positions still bullish</b> â no exits today.\n\n"
+        msg += "✅ <b>All positions still bullish</b> — no exits today.\n\n"
 
-    # â Fresh BUYs â
+    # — Fresh BUYs —
     if buys:
-        msg += "ð¢ <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
+        msg += "🟢 <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
         for s in buys:
             tv   = f'{TV_BASE_URL}{s["ticker"]}'
             msg += (f'<a href="{tv}"><b>{s["ticker"]}</b></a> '
@@ -606,18 +606,18 @@ def run_scan():
     if not buys and not hard_exits and not review_flags:
         msg += "No new signals today.\n"
 
-    msg += f"<i>Scanned {len(tickers)} stocks Â· {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>\n"
+    msg += f"<i>Scanned {len(tickers)} stocks · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC</i>\n"
     if PC_REGIME == "GREED":
-        msg += "â ï¸ <i>P/C below 0.70 â market very bullish. Stay selective.</i>"
+        msg += "⚠️ <i>P/C below 0.70 — market very bullish. Stay selective.</i>"
     elif PC_REGIME == "FEAR":
-        msg += "ð¡ <i>P/C above 1.00 â elevated fear. Signals are higher conviction.</i>"
+        msg += "💡 <i>P/C above 1.00 — elevated fear. Signals are higher conviction.</i>"
     send_alert(msg)
 
-    # ââ 9. Log new signals to Sheets âââââââââââââââââââââââââââââââââââââââââ
+    # ── 9. Log new signals to Sheets ─────────────────────────────────────────
     if buys or reentries:
         sheets_logger.log_signals(scan_date, buys, reentries)
 
-    # ââ 10. Mark exited positions CLOSED in Sheets ââââââââââââââââââââââââââââ
+    # ── 10. Mark exited positions CLOSED in Sheets ────────────────────────────
     if hard_exits and ws:
         sheets_logger.close_positions(ws, [
             {
