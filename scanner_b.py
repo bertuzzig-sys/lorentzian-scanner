@@ -39,10 +39,9 @@ MIN_DAILY_VOLUME   = 100_000
 MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) â raise bar
-# SPY_EMA_PERIOD   = 21       # candles for SPY regime EMA
 SPY_EMA_PERIOD     = 21       # candles for SPY regime EMA
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down â¥ 4%
-VOLUME_MIN_RATIO   = 0.80     # today's volume must be â¥ume â¥ 80% of 20-day avg
+VOLUME_MIN_RATIO   = 0.80     # today's volume must be â¥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up â¥ 0.5% on entry day (no flat/red buys)
 MAX_OPEN_POSITIONS = 10       # no new signals when 10 positions already open
@@ -347,11 +346,19 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
 def run_scan():
     global MIN_VOTE, SPY_REGIME, PC_RATIO, PC_REGIME
 
+    # Skip weekends â markets are closed
+    if date.today().weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+        log.info("Weekend (%s) â skipping scan.", date.today().strftime("%A"))
+        return
+
     scan_date = date.today().isoformat()
     log.info("=== Lorentzian v9.0 scan â %s ===", scan_date)
 
     # ââ 1. Load open positions from Sheets âââââââââââââââââââââââââââââââââââ
     open_positions, ws = sheets_logger.get_open_positions()
+    # Dedup: keep only the first (earliest) row per ticker
+    seen: set[str] = set()
+    open_positions = [p for p in open_positions if not (p["ticker"] in seen or seen.add(p["ticker"]))]
     open_tickers = {p["ticker"] for p in open_positions}
     log.info("Monitoring %d open positions for exits", len(open_positions))
 
@@ -403,9 +410,9 @@ def run_scan():
 
     send_alert(
         f"ð <b>Lorentzian Scanner V9.0 [LC+VWAP]</b>\n"
-        f"Data: <b>yfinance</b> Â· Daily  Â· consolidated tape\n"
+        f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta Â· FRESH BUY signals only</i>\n"
-        f"<i>SPY: {'â¢ BULL' if SPY_REGIME == 'BULL' else 'ð´ BEAR'} "
+        f"<i>SPY: {'ð¢ BULL' if SPY_REGIME == 'BULL' else 'ð´ BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
         f"<i>P/C Ratio: {PC_RATIO:.2f} â {pc_icon}</i>\n"
         f"<i>Final Vote threshold: â¥ {MIN_VOTE}</i>\n"
@@ -555,7 +562,7 @@ def run_scan():
     # Main signals message
     spy_icon = "ð¢ BULL" if SPY_REGIME == "BULL" else "ð´ BEAR"
     msg = (f"ð¯ <b>[LC+VWAP v9.0] SIGNALS</b>\n"
-           f"SPY: {spy_icon} Â· P/C: {PC_RATIO:.2f} ({pc_icon}) Â· Vote â¥ {MIN_VOTE}\n\n")
+           f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # â Exit section â
     if hard_exits:
@@ -564,18 +571,23 @@ def run_scan():
             pnl_s = f"+{e['pnl']}%" if e["pnl"] >= 0 else f"{e['pnl']}%"
             tv    = f'{TV_BASE_URL}{e["ticker"]}'
             msg  += (f'<a href="{tv}"><b>{e["ticker"]}</b></a> '
-                     f'${e["cur_price"]} Â· was ${e["entry_price"]} Â· '
-                     f'{pnl_s} Â· {e["reason"]}\n')
+                     f'${e["cur_price"]} | was ${e["entry_price"]} | '
+                     f'{pnl_s} | {e["reason"]}\n')
         msg += "\n"
 
+    MAX_REVIEW_SHOWN = 10
     if review_flags:
+        shown   = review_flags[:MAX_REVIEW_SHOWN]
+        skipped = len(review_flags) - len(shown)
         msg += f"â° <b>{EXIT_DAYS}-DAY REVIEW</b> (still bullish â consider taking profit):\n"
-        for e in review_flags:
+        for e in shown:
             pnl_s = f"+{e['pnl']}%" if e["pnl"] >= 0 else f"{e['pnl']}%"
             tv    = f'{TV_BASE_URL}{e["ticker"]}'
             msg  += (f'<a href="{tv}"><b>{e["ticker"]}</b></a> '
-                     f'${e["cur_price"]} Â· was ${e["entry_price"]} Â· '
-                     f'{pnl_s} Â· {e["days_held"]}d Â· vote {e["vote"]:+d}\n')
+                     f'${e["cur_price"]} | was ${e["entry_price"]} | '
+                     f'{pnl_s} | {e["days_held"]}d | vote {e["vote"]:+d}\n')
+        if skipped:
+            msg += f"<i>...and {skipped} more positions in review</i>\n"
         msg += "\n"
 
     if open_positions and not hard_exits and not review_flags:
@@ -587,8 +599,8 @@ def run_scan():
         for s in buys:
             tv   = f'{TV_BASE_URL}{s["ticker"]}'
             msg += (f'<a href="{tv}"><b>{s["ticker"]}</b></a> '
-                    f'${s["price"]} Â· vwap ${s["vwap"]} Â· vote {s["vote"]:+d} Â· '
-                    f'{s["size"]} Â· stop ${s["stop"]}\n')
+                    f'${s["price"]} | vwap ${s["vwap"]} | vote {s["vote"]:+d} | '
+                    f'{s["size"]} | stop ${s["stop"]}\n')
         msg += "\n"
 
     if not buys and not hard_exits and not review_flags:
