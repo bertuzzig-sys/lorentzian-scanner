@@ -417,7 +417,7 @@ def run_scan():
         f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon}</i>\n"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
         f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
-        f"<i>Risk: stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
+        f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
         f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>"
     )
 
