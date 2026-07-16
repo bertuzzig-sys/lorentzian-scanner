@@ -1,5 +1,6 @@
 """
-Ticker universe: S&P MidCap 400 + expanded Russell 2000 static list
+Ticker universe: S&P 500 + Nasdaq 100 (fetched live from Wikipedia)
+Fallback: S&P MidCap 400 + Russell 2000 if live fetch fails
 With user exclusion list (oil/gas, weapons/defense/ammo, drones/eVTOL)
 """
 
@@ -149,7 +150,20 @@ def filter_excluded(tickers):
 
 
 def get_sp500():
+    """Fetch actual S&P 500 constituents from Wikipedia."""
+    syms = _fetch_wikipedia_table("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", "S&P 500")
+    if syms:
+        log.info("S&P 500: fetched %d tickers", len(syms))
+        return syms
+    log.warning("S&P 500 fetch failed — falling back to MidCap 400")
     return get_sp_midcap_400()
 
+
 def get_nasdaq100():
+    """Fetch actual Nasdaq 100 constituents from Wikipedia."""
+    syms = _fetch_wikipedia_table("https://en.wikipedia.org/wiki/Nasdaq-100", "Nasdaq 100")
+    if syms:
+        log.info("Nasdaq 100: fetched %d tickers", len(syms))
+        return syms
+    log.warning("Nasdaq 100 fetch failed — falling back to Russell 2000")
     return get_russell_2000()
