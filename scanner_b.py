@@ -1,9 +1,10 @@
 """
-Lorentzian Scanner B — v9.4 (Pre-market check + 14:30 CEST schedule)
+Lorentzian Scanner B — v9.5 (Market cap gate + auto-close)
 ===========================
-Changes from v9.3:
-- Pre-market snapshot: SPY/QQQ/VIX pre-market prices in scan header
-- Schedule: 12:30 UTC (14:30 CEST) — 1 hour before US market open
+Changes from v9.5:
+- Market cap gate: MIN $200M (no micro caps) / MAX $300B (no mega caps)
+- Auto-close rule: positions held >= MAX_HOLD_DAYS (10) close automatically
+- Universe: MidCap400 + Russell2000 (corrected naming in tickers.py)
 """
 
 import os
@@ -36,6 +37,9 @@ BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
 SPY_EMA_PERIOD     = 21       # candles for SPY regime EMA
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
+MAX_HOLD_DAYS      = 10       # auto-close after 10 trading days regardless of signal
+MIN_MARKET_CAP     = 200_000_000       # $200M floor — filter micro caps / penny stocks
+MAX_MARKET_CAP     = 300_000_000_000   # $300B ceiling — filter mega caps
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
@@ -195,6 +199,24 @@ def get_sector(ticker: str) -> str:
     return sector
 
 
+_MCAP_CACHE: dict[str, float] = {}
+
+
+def get_market_cap(ticker: str) -> float:
+    """
+    Return market cap for ticker (USD) via yfinance fast_info (cached).
+    Returns 0 on error — caller should treat 0 as "unknown, don't filter".
+    """
+    if ticker in _MCAP_CACHE:
+        return _MCAP_CACHE[ticker]
+    try:
+        mcap = float(yf.Ticker(ticker).fast_info.market_cap or 0)
+    except Exception:
+        mcap = 0.0
+    _MCAP_CACHE[ticker] = mcap
+    return mcap
+
+
 def run_scan_locked():
     """Run scan with an exclusive file lock — skips if another scan is already running."""
     try:
@@ -304,6 +326,16 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
         if last_price < MIN_PRICE:
             counters["price"] += 1
             return None
+
+        # ── Market cap gate: $200M – $300B sweet spot ─────────────────────────────
+        mcap = get_market_cap(ticker)
+        if mcap > 0:   # 0 = unknown, skip filter rather than block
+            if mcap < MIN_MARKET_CAP:
+                counters["mcap_micro"] = counters.get("mcap_micro", 0) + 1
+                return None
+            if mcap > MAX_MARKET_CAP:
+                counters["mcap_mega"] = counters.get("mcap_mega", 0) + 1
+                return None
 
         daily_vol  = float(df["volume"].iloc[-1])
         dollar_vol = daily_vol * last_price
@@ -452,7 +484,7 @@ def run_scan():
     log.info("Pre-market: %s", premarket_snapshot)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.4 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.5 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -566,6 +598,16 @@ def run_scan():
                 "reason":      exit_reason,
                 "row_idx":     pos["row_idx"],
             })
+        elif pos["days_held"] >= MAX_HOLD_DAYS:
+            # Auto-close: exceeded maximum hold period
+            hard_exits.append({
+                "ticker":      ticker,
+                "entry_price": pos["entry_price"],
+                "cur_price":   cur_price,
+                "pnl":         pnl,
+                "reason":      f"🕐 max hold {pos['days_held']}d → auto-close",
+                "row_idx":     pos["row_idx"],
+            })
         elif pos["days_held"] >= EXIT_DAYS:
             review_flags.append({
                 "ticker":      ticker,
@@ -583,12 +625,14 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.4] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.5] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
         f"❌ No data: {counters['no_data']}\n"
         f"❌ Price &lt;$5: {counters['price']}\n"
+        f"❌ Micro cap &lt;$200M: {counters.get('mcap_micro', 0)}\n"
+        f"❌ Mega cap &gt;$300B: {counters.get('mcap_mega', 0)}\n"
         f"❌ Dollar vol &lt;$5M: {counters['volume']}\n"
         f"❌ Low vol (20d avg): {counters['low_volume']}\n"
         f"❌ RS vs SPY: {counters['rs_fail']}\n"
@@ -605,7 +649,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.4] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.5] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -675,7 +719,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.4 starting...")
+    log.info("Lorentzian Scanner V9.5 starting...")
     run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
