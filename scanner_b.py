@@ -1,14 +1,11 @@
 """
-Lorentzian Scanner B — v9.0 (Noise Reduction + Quant Filters)
+Lorentzian Scanner B — v9.3 (Signal Quality Upgrade)
 ===========================
-Changes from v8.0:
-- RE-ENTRY signals removed: fresh Lorentzian flips only (no more VWAP re-log noise)
-- Max 10 concurrent open positions: no new signals when book is full
-- Sector cap: 1 signal per sector per scan (no 5 bank signals in one day)
-- Entry day momentum: stock must be up ≥ 0.5% on the entry day (no flat/red entries)
-- Stop loss exit price capped at exactly -4% (gap-down blowthrough fix)
-- Put/Call ratio overlay: P/C < 0.70 (GREED) → vote ≥ 8 always + half size warning
-                          P/C > 1.00 (FEAR)  → vote ≥ 6 even in BEAR (buy the panic)
+Changes from v9.2:
+- LC ADX filter enabled (useAdxFilter=True, adxThreshold=20): rejects signals in trendless markets
+- LC regime threshold raised (-0.1 → 0.0): internal trend bias must be positive
+- RSI gate at entry: stock RSI must be 40–70 (no oversold bounces, no overbought chasing)
+- 50-day EMA gate: stock price must be above its own 50-day EMA (uptrend only)
 """
 
 import os
@@ -70,8 +67,8 @@ _LC_FEATURES = [
 _LC_FILTERS = LorentzianClassification.FilterSettings(
     useVolatilityFilter=True,
     useRegimeFilter=True,
-    useAdxFilter=False,
-    regimeThreshold=-0.1,
+    useAdxFilter=True,          # v9.3: filter out trendless/bear signals
+    regimeThreshold=0.0,        # v9.3: raised from -0.1 → requires positive trend bias
     adxThreshold=20,
     kernelFilter=LorentzianClassification.KernelFilter(useKernelSmoothing=False),
 )
@@ -310,6 +307,25 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
             counters["momentum_fail"] += 1
             return None
 
+
+        # ── 50-day EMA: stock must be in an uptrend ────────────────────────────────────────
+        if len(df) >= 50:
+            ema50 = float(df["close"].ewm(span=50, adjust=False).mean().iloc[-1])
+            if last_price < ema50:
+                counters["ema50_fail"] = counters.get("ema50_fail", 0) + 1
+                return None
+
+        # ── RSI gate: 40–70 (no oversold bounces, no overbought chasing) ────
+        if len(df) >= 15:
+            delta  = df["close"].diff()
+            gain   = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+            loss   = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
+            rs     = gain / loss.replace(0, np.nan)
+            rsi    = float((100 - 100 / (1 + rs)).iloc[-1])
+            if not (40 <= rsi <= 70):
+                counters["rsi_gate"] = counters.get("rsi_gate", 0) + 1
+                return None
+
         vwap_series = weekly_vwap(df)
         last_vwap   = float(vwap_series.iloc[-1])
         if np.isnan(last_vwap):
@@ -410,7 +426,7 @@ def run_scan():
     log.info("Open sectors: %s", sorted(open_sectors))
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.0 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.3 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -540,7 +556,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.0] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.3] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -562,7 +578,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.0] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.3] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -632,7 +648,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.0 starting...")
+    log.info("Lorentzian Scanner V9.3 starting...")
     run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
