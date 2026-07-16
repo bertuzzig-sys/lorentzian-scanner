@@ -35,7 +35,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-MIN_DAILY_VOLUME   = 100_000
+MIN_DOLLAR_VOLUME  = 5_000_000  # $5M/day — filters illiquid stocks regardless of share price
 MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
@@ -285,8 +285,9 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
             counters["price"] += 1
             return None
 
-        daily_vol = float(df["volume"].iloc[-1])
-        if daily_vol < MIN_DAILY_VOLUME:
+        daily_vol  = float(df["volume"].iloc[-1])
+        dollar_vol = daily_vol * last_price
+        if dollar_vol < MIN_DOLLAR_VOLUME:
             counters["volume"] += 1
             return None
 
@@ -545,7 +546,7 @@ def run_scan():
         f"📥 Scanned: {len(tickers)}\n"
         f"❌ No data: {counters['no_data']}\n"
         f"❌ Price &lt;$5: {counters['price']}\n"
-        f"❌ Volume &lt;100K: {counters['volume']}\n"
+        f"❌ Dollar vol &lt;$5M: {counters['volume']}\n"
         f"❌ Low vol (20d avg): {counters['low_volume']}\n"
         f"❌ RS vs SPY: {counters['rs_fail']}\n"
         f"❌ Momentum &lt;0.5%: {counters['momentum_fail']}\n"
