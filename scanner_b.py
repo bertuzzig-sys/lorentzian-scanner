@@ -1,11 +1,9 @@
 """
-Lorentzian Scanner B — v9.3 (Signal Quality Upgrade)
+Lorentzian Scanner B — v9.4 (Pre-market check + 14:30 CEST schedule)
 ===========================
-Changes from v9.2:
-- LC ADX filter enabled (useAdxFilter=True, adxThreshold=20): rejects signals in trendless markets
-- LC regime threshold raised (-0.1 → 0.0): internal trend bias must be positive
-- RSI gate at entry: stock RSI must be 40–70 (no oversold bounces, no overbought chasing)
-- 50-day EMA gate: stock price must be above its own 50-day EMA (uptrend only)
+Changes from v9.3:
+- Pre-market snapshot: SPY/QQQ/VIX pre-market prices in scan header
+- Schedule: 12:30 UTC (14:30 CEST) — 1 hour before US market open
 """
 
 import os
@@ -152,6 +150,31 @@ def get_put_call_ratio() -> float:
             log.debug("P/C fetch error (%s): %s", sym, exc)
     log.warning("Could not fetch P/C ratio — using neutral 0.85")
     return 0.85
+
+
+def get_premarket_snapshot() -> str:
+    """
+    Fetch SPY, QQQ and VIX pre-market prices via yfinance.
+    Returns a pipe-separated one-liner for the Telegram header.
+    """
+    checks = {"SPY": "S&P 500", "QQQ": "Nasdaq", "^VIX": "VIX"}
+    parts = []
+    for sym, label in checks.items():
+        try:
+            info = yf.Ticker(sym).info
+            pre  = info.get("preMarketPrice")
+            prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+            cur  = info.get("regularMarketPrice") or info.get("currentPrice")
+            ref  = pre or cur
+            if ref and prev and prev > 0:
+                pct  = (ref - prev) / prev * 100
+                icon = "\U0001f7e2" if pct >= 0 else "\U0001f534"
+                tag  = "(pre)" if pre else "(close)"
+                parts.append(f"{icon} {sym} ${ref:.2f} {tag} {pct:+.2f}%")
+        except Exception as exc:
+            log.debug("Pre-market fetch (%s): %s", sym, exc)
+            parts.append(f"\u26aa {sym}: n/a")
+    return " | ".join(parts) if parts else "pre-market data unavailable"
 
 
 _SECTOR_CACHE: dict[str, str] = {}
@@ -425,13 +448,17 @@ def run_scan():
             open_sectors.add(sec)
     log.info("Open sectors: %s", sorted(open_sectors))
 
+    premarket_snapshot = get_premarket_snapshot()
+    log.info("Pre-market: %s", premarket_snapshot)
+
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.3 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.4 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
         f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon}</i>\n"
+        f"<i>Pre-market: {premarket_snapshot}</i>\n"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
         f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
         f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
@@ -556,7 +583,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.3] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.4] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -578,7 +605,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.3] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.4] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -648,7 +675,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.3 starting...")
+    log.info("Lorentzian Scanner V9.4 starting...")
     run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
