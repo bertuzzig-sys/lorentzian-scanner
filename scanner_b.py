@@ -1,10 +1,10 @@
 """
-Lorentzian Scanner B — v9.5 (Market cap gate + auto-close)
+Lorentzian Scanner B — v9.6 (Real fill prices)
 ===========================
 Changes from v9.5:
-- Market cap gate: MIN $200M (no micro caps) / MAX $300B (no mega caps)
-- Auto-close rule: positions held >= MAX_HOLD_DAYS (10) close automatically
-- Universe: MidCap400 + Russell2000 (corrected naming in tickers.py)
+- Fill-price pass at 13:45 UTC (15 min after US open): entry_price in Sheets
+  is updated from signal price (prev close) to the actual opening price.
+  P&L and stop-loss now measure from the realistic fill, not the stale close.
 """
 
 import os
@@ -215,6 +215,43 @@ def get_market_cap(ticker: str) -> float:
         mcap = 0.0
     _MCAP_CACHE[ticker] = mcap
     return mcap
+
+
+def update_entry_prices():
+    """
+    Second pass ~15 min after US open: replace the morning signal prices
+    (previous close) with the actual opening price in Sheets.
+    Keeps P&L and stop-loss anchored to the realistic fill price.
+    """
+    if date.today().weekday() >= 5:
+        return
+    today = date.today().isoformat()
+    try:
+        positions, ws = sheets_logger.get_open_positions()
+    except Exception as exc:
+        log.warning("Fill-price update: sheets error: %s", exc)
+        return
+    if not ws:
+        return
+    todays = [p for p in positions if p["scan_date"] == today]
+    if not todays:
+        log.info("Fill-price update: no signals logged today.")
+        return
+    lines = []
+    for pos in todays:
+        try:
+            fi = yf.Ticker(pos["ticker"]).fast_info
+            today_open = float(fi.open or 0)
+            if today_open <= 0:
+                continue
+            gap = (today_open - pos["entry_price"]) / pos["entry_price"] * 100
+            ws.update_cell(pos["row_idx"], 4, round(today_open, 2))  # col D = entry_price
+            lines.append(f"{pos['ticker']}: ${pos['entry_price']} -> ${today_open:.2f} ({gap:+.1f}% gap)")
+        except Exception as exc:
+            log.warning("Fill update error %s: %s", pos["ticker"], exc)
+    if lines:
+        send_alert("🧾 <b>Entry prices updated to real open</b>\n" + "\n".join(lines))
+    log.info("Fill-price update: %d rows updated.", len(lines))
 
 
 def run_scan_locked():
@@ -484,7 +521,7 @@ def run_scan():
     log.info("Pre-market: %s", premarket_snapshot)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.5 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.6 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -625,7 +662,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.5] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.6] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -649,7 +686,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.5] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.6] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -719,10 +756,13 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.5 starting...")
+    log.info("Lorentzian Scanner V9.6 starting...")
     run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
+    fill_time = os.getenv("FILL_TIME_UTC", "13:45")
+    schedule.every().day.at(fill_time).do(update_entry_prices)
+    log.info("Fill-price update scheduled at %s UTC daily.", fill_time)
     log.info("Next scheduled run at %s UTC daily.", schedule_time)
     while True:
         schedule.run_pending()
