@@ -37,14 +37,14 @@ BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
 SPY_EMA_PERIOD     = 21       # candles for SPY regime EMA
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
-MAX_HOLD_DAYS      = 10       # auto-close after 10 trading days regardless of signal
+MAX_HOLD_DAYS      = 5        # auto-close after 5 trading days (KNN predicts 4-bar moves — signal decays)
 MIN_MARKET_CAP     = 200_000_000       # $200M floor — filter micro caps / penny stocks
 MAX_MARKET_CAP     = 300_000_000_000   # $300B ceiling — filter mega caps
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
 MAX_OPEN_POSITIONS = 10       # no new signals when 10 positions already open
-EXIT_DAYS          = 5        # flag for review after N trading days
+EXIT_DAYS          = 3        # flag for review after N trading days (early heads-up before 5d auto-close)
 TV_BASE_URL        = "https://www.tradingview.com/chart/?symbol="
 LOCK_FILE          = "/tmp/lorentzian_scan.lock"
 
