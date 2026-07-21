@@ -1,10 +1,10 @@
 """
-Lorentzian Scanner B — v9.6 (Real fill prices)
+Lorentzian Scanner B — v9.7 (SPY regime fetch fix)
 ===========================
-Changes from v9.5:
-- Fill-price pass at 13:45 UTC (15 min after US open): entry_price in Sheets
-  is updated from signal price (prev close) to the actual opening price.
-  P&L and stop-loss now measure from the realistic fill, not the stale close.
+Changes from v9.7:
+- FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
+  and defaulting to BULL with $0.00 — corrupted the RS-vs-SPY filter.
+  Now flattens MultiIndex before lowercasing. Same guard added to _clean_df.
 """
 
 import os
@@ -87,11 +87,16 @@ def get_spy_regime(all_bars: dict) -> tuple[str, float, float]:
     if df is None:
         try:
             raw = yf.download("SPY", period="60d", interval="1d",
-                              auto_adjust=True, progress=False)
-            raw.columns = [c.lower() for c in raw.columns]
+                              auto_adjust=True, progress=False, threads=False)
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)   # ('Close','SPY') -> 'Close'
+            raw.columns = [str(c).lower() for c in raw.columns]
             if isinstance(raw.index, pd.DatetimeIndex) and raw.index.tz is not None:
                 raw.index = raw.index.tz_localize(None)
             df = raw.dropna(subset=["close"])
+            if df is None or df.empty:
+                log.warning("SPY fetch returned empty — regime defaulting to BULL")
+                return "BULL", 0.0, 0.0
             all_bars["SPY"] = df
         except Exception as exc:
             log.warning("Could not fetch SPY for regime check: %s", exc)
@@ -307,7 +312,9 @@ def fetch_all_bars(tickers, days=365):
 
 def _clean_df(raw, sym):
     df = raw.copy()
-    df.columns = [c.lower() for c in df.columns]
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(-1)   # flatten single-ticker MultiIndex
+    df.columns = [str(c).lower() for c in df.columns]
     if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
         df.index = df.index.tz_localize(None)
     df.index.name = "timestamp"
@@ -521,7 +528,7 @@ def run_scan():
     log.info("Pre-market: %s", premarket_snapshot)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.6 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.7 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -662,7 +669,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.6] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.7] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -686,7 +693,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.6] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.7] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -756,7 +763,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.6 starting...")
+    log.info("Lorentzian Scanner V9.7 starting...")
     run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
