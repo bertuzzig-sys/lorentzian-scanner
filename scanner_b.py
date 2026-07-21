@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v9.7 (SPY regime fetch fix)
+Lorentzian Scanner B — v9.8 (Pre-market gap annotation on buys)
 ===========================
 Changes from v9.7:
 - FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
@@ -202,6 +202,29 @@ def get_sector(ticker: str) -> str:
         sector = "Unknown"
     _SECTOR_CACHE[ticker] = sector
     return sector
+
+
+def get_premarket_gap(ticker: str, ref_close: float) -> str:
+    """
+    Return a pre-market gap annotation (vs ref_close = yesterday's close) for a
+    signal candidate. Informational only — NEVER blocks a signal, because
+    small-cap pre-market prints are thin and unreliable. Returns "" if no data.
+    """
+    if ref_close <= 0:
+        return ""
+    try:
+        info = yf.Ticker(ticker).info
+        pre  = info.get("preMarketPrice")
+        if not pre or pre <= 0:
+            return ""
+        gap = (float(pre) - ref_close) / ref_close * 100
+        if gap <= -2.0:
+            return f" | \u26a0\ufe0f pre {gap:+.1f}% (gapping down)"
+        if gap >= 5.0:
+            return f" | \u26a0\ufe0f pre {gap:+.1f}% (extended)"
+        return f" | pre {gap:+.1f}%"
+    except Exception:
+        return ""
 
 
 _MCAP_CACHE: dict[str, float] = {}
@@ -730,9 +753,10 @@ def run_scan():
         msg += "🟢 <b>FRESH BUY</b> (Lorentzian just flipped long):\n"
         for s in buys:
             tv   = f'{TV_BASE_URL}{s["ticker"]}'
+            pm   = get_premarket_gap(s["ticker"], s["price"])
             msg += (f'<a href="{tv}"><b>{s["ticker"]}</b></a> '
                     f'${s["price"]} | vwap ${s["vwap"]} | vote {s["vote"]:+d} | '
-                    f'{s["size"]} | stop ${s["stop"]}\n')
+                    f'{s["size"]} | stop ${s["stop"]}{pm}\n')
         msg += "\n"
 
     if not buys and not hard_exits and not review_flags:
