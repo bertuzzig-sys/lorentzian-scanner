@@ -1,7 +1,7 @@
 """
-Lorentzian Scanner B — v9.8 (Pre-market gap annotation on buys)
+Lorentzian Scanner B — v9.9 (Boot-scan guard)
 ===========================
-Changes from v9.7:
+Changes from v9.9:
 - FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
   and defaulting to BULL with $0.00 — corrupted the RS-vs-SPY filter.
   Now flattens MultiIndex before lowercasing. Same guard added to _clean_df.
@@ -282,6 +282,22 @@ def update_entry_prices():
     log.info("Fill-price update: %d rows updated.", len(lines))
 
 
+def us_market_open_now() -> bool:
+    """
+    True if the US cash session may be open, Mon-Fri.
+    Window 13:30-21:00 UTC is the UNION of both DST regimes:
+        EDT (summer) 09:30-16:00 ET = 13:30-20:00 UTC
+        EST (winter) 09:30-16:00 ET = 14:30-21:00 UTC
+    Deliberately conservative — if in doubt treat as open and skip the boot
+    scan, rather than scan on a partial daily bar.
+    """
+    now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        return False
+    minutes = now.hour * 60 + now.minute
+    return (13 * 60 + 30) <= minutes < (21 * 60)
+
+
 def run_scan_locked():
     """Run scan with an exclusive file lock — skips if another scan is already running."""
     try:
@@ -551,7 +567,7 @@ def run_scan():
     log.info("Pre-market: %s", premarket_snapshot)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.7 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V9.9 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -692,7 +708,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.7] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v9.9] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -716,7 +732,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.7] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v9.9] SIGNALS</b>\n"
            f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -787,8 +803,17 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.7 starting...")
-    run_scan_locked()
+    log.info("Lorentzian Scanner V9.9 starting...")
+    # Boot scan: skip while the US session is open — yfinance would return a
+    # PARTIAL daily bar (today's volume so far), which silently breaks the
+    # dollar-volume / momentum / RS filters and can log bad prices to Sheets.
+    if os.getenv("RUN_ON_BOOT", "true").lower() != "true":
+        log.info("Boot scan disabled via RUN_ON_BOOT.")
+    elif us_market_open_now():
+        log.info("US market open — skipping boot scan (partial daily bar). "
+                 "Waiting for the scheduled run.")
+    else:
+        run_scan_locked()
     schedule_time = os.getenv("SCAN_TIME_UTC", "23:00")
     schedule.every().day.at(schedule_time).do(run_scan_locked)
     fill_time = os.getenv("FILL_TIME_UTC", "13:45")
