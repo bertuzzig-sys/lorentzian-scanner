@@ -794,6 +794,15 @@ if __name__ == "__main__":
     fill_time = os.getenv("FILL_TIME_UTC", "13:45")
     schedule.every().day.at(fill_time).do(update_entry_prices)
     log.info("Fill-price update scheduled at %s UTC daily.", fill_time)
+
+    # Prospero free-signal forward-tracker: score daily, summarise Fridays
+    try:
+        from prospero_tracker import update_prospero, prospero_summary
+        schedule.every().day.at("21:30").do(update_prospero)
+        schedule.every().friday.at("21:45").do(prospero_summary)
+        log.info("Prospero tracker scheduled (score 21:30, summary Fri 21:45 UTC).")
+    except Exception as exc:
+        log.warning("Prospero tracker not scheduled: %s", exc)
     log.info("Next scheduled run at %s UTC daily.", schedule_time)
     while True:
         schedule.run_pending()
