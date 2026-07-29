@@ -1,7 +1,7 @@
 """
-Lorentzian Scanner B — v9.9 (Boot-scan guard)
+Lorentzian Scanner B — v10.0 (Benchmark fix + rotation snapshot)
 ===========================
-Changes from v9.9:
+Changes from v10.0:
 - FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
   and defaulting to BULL with $0.00 — corrupted the RS-vs-SPY filter.
   Now flattens MultiIndex before lowercasing. Same guard added to _clean_df.
@@ -35,7 +35,20 @@ MIN_DOLLAR_VOLUME  = 5_000_000  # $5M/day — filters illiquid stocks regardless
 MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
-SPY_EMA_PERIOD     = 21       # candles for SPY regime EMA
+SPY_EMA_PERIOD     = 21       # candles for benchmark regime EMA
+# v10.0: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
+# SPY is cap-weighted and mega-cap-tech dominated, so it printed BEAR while our
+# small/mid-cap universe was rallying. IWM = Russell 2000 ETF.
+BENCHMARK_TICKER   = os.getenv("BENCHMARK_TICKER", "IWM")
+
+# Rotation snapshot (informational only — never gates a signal)
+SIZE_ETFS   = {"SPY": "LargeCap", "IJH": "MidCap", "IWM": "SmallCap", "QQQ": "Nasdaq100"}
+SECTOR_ETFS = {
+    "XLK": "Tech",        "XLF": "Financials",  "XLV": "Health",
+    "XLE": "Energy",      "XLI": "Industrials", "XLY": "Discretionary",
+    "XLP": "Staples",     "XLU": "Utilities",   "XLB": "Materials",
+    "XLRE": "RealEstate", "XLC": "Comms",
+}
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
 MAX_HOLD_DAYS      = 5        # auto-close after 5 trading days (KNN predicts 4-bar moves — signal decays)
 MIN_MARKET_CAP     = 200_000_000       # $200M floor — filter micro caps / penny stocks
@@ -83,10 +96,10 @@ def get_spy_regime(all_bars: dict) -> tuple[str, float, float]:
     Return (regime, spy_1d_return, spy_ema) where regime is 'BULL' or 'BEAR'.
     Downloads SPY if not already in all_bars.
     """
-    df = all_bars.get("SPY")
+    df = all_bars.get(BENCHMARK_TICKER)
     if df is None:
         try:
-            raw = yf.download("SPY", period="60d", interval="1d",
+            raw = yf.download(BENCHMARK_TICKER, period="60d", interval="1d",
                               auto_adjust=True, progress=False, threads=False)
             if isinstance(raw.columns, pd.MultiIndex):
                 raw.columns = raw.columns.get_level_values(0)   # ('Close','SPY') -> 'Close'
@@ -95,11 +108,11 @@ def get_spy_regime(all_bars: dict) -> tuple[str, float, float]:
                 raw.index = raw.index.tz_localize(None)
             df = raw.dropna(subset=["close"])
             if df is None or df.empty:
-                log.warning("SPY fetch returned empty — regime defaulting to BULL")
+                log.warning("%s fetch returned empty — regime defaulting to BULL", BENCHMARK_TICKER)
                 return "BULL", 0.0, 0.0
-            all_bars["SPY"] = df
+            all_bars[BENCHMARK_TICKER] = df
         except Exception as exc:
-            log.warning("Could not fetch SPY for regime check: %s", exc)
+            log.warning("Could not fetch %s for regime check: %s", BENCHMARK_TICKER, exc)
             return "BULL", 0.0, 0.0
 
     closes = df["close"]
@@ -202,6 +215,55 @@ def get_sector(ticker: str) -> str:
         sector = "Unknown"
     _SECTOR_CACHE[ticker] = sector
     return sector
+
+
+def _etf_pct(close, sym: str, days: int):
+    """Percent return over `days` trading days for one ETF column, or None."""
+    if sym not in close.columns:
+        return None
+    s = close[sym].dropna()
+    if len(s) <= days:
+        return None
+    prev = float(s.iloc[-1 - days])
+    if prev == 0:
+        return None
+    return (float(s.iloc[-1]) - prev) / prev * 100
+
+
+def get_rotation_snapshot() -> str:
+    """
+    Live sector + size rotation read, computed from ETF returns (no news feed,
+    so it never goes stale). Size leadership over 21d, sector moves over 5d.
+    Informational only — this NEVER gates a signal.
+    """
+    syms = list(SIZE_ETFS) + list(SECTOR_ETFS)
+    try:
+        raw = yf.download(syms, period="60d", interval="1d",
+                          auto_adjust=True, progress=False, threads=False)
+        if raw is None or raw.empty:
+            return ""
+        close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+    except Exception as exc:
+        log.debug("Rotation snapshot error: %s", exc)
+        return ""
+
+    sizes = [(lbl, r) for sym, lbl in SIZE_ETFS.items()
+             if (r := _etf_pct(close, sym, 21)) is not None]
+    sizes.sort(key=lambda x: -x[1])
+    secs = [(lbl, r) for sym, lbl in SECTOR_ETFS.items()
+            if (r := _etf_pct(close, sym, 5)) is not None]
+    secs.sort(key=lambda x: -x[1])
+
+    lines = []
+    if sizes:
+        lead = " &gt; ".join(f"{lbl} {r:+.1f}%" for lbl, r in sizes)
+        lines.append(f"<i>Size 21d: {lead}</i>")
+    if len(secs) >= 6:
+        top = " · ".join(f"{lbl} {r:+.1f}%" for lbl, r in secs[:3])
+        bot = " · ".join(f"{lbl} {r:+.1f}%" for lbl, r in secs[-3:])
+        lines.append(f"<i>Sectors 5d ▲ {top}</i>")
+        lines.append(f"<i>Sectors 5d ▼ {bot}</i>")
+    return "\n".join(lines)
 
 
 def get_premarket_gap(ticker: str, ref_close: float) -> str:
@@ -433,7 +495,7 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
                 counters["low_volume"] += 1
                 return None
 
-        # ── Relative strength: must beat SPY 1-day return ────────────────────
+        # ── Relative strength: must beat the benchmark 1-day return ─────────
         prev_close  = float(df["close"].iloc[-2]) if len(df) >= 2 else last_price
         stock_1d    = (last_price - prev_close) / prev_close if prev_close else 0
         if stock_1d <= spy_1d_return:
@@ -536,7 +598,7 @@ def run_scan():
 
     # ── 4. Market regime (SPY 21-EMA + Put/Call ratio) ───────────────────────
     SPY_REGIME, spy_1d_return, spy_ema = get_spy_regime(all_bars)
-    spy_df   = all_bars.get("SPY")
+    spy_df   = all_bars.get(BENCHMARK_TICKER)
     spy_last = float(spy_df["close"].iloc[-1]) if spy_df is not None else 0
 
     # P/C ratio overlay — adjusts vote threshold on top of SPY regime
@@ -565,15 +627,20 @@ def run_scan():
 
     premarket_snapshot = get_premarket_snapshot()
     log.info("Pre-market: %s", premarket_snapshot)
+    rotation_text  = get_rotation_snapshot()
+    rotation_block = (rotation_text + "\n") if rotation_text else ""
+    if rotation_text:
+        log.info("Rotation:\n%s", rotation_text)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V9.9 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V10.0 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
-        f"<i>SPY: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
+        f"<i>{BENCHMARK_TICKER} regime: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
         f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon}</i>\n"
         f"<i>Pre-market: {premarket_snapshot}</i>\n"
+        f"{rotation_block}"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
         f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
         f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
@@ -708,7 +775,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v9.9] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v10.0] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -732,8 +799,8 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v9.9] SIGNALS</b>\n"
-           f"SPY: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
+    msg = (f"🎯 <b>[LC+VWAP v10.0] SIGNALS</b>\n"
+           f"{BENCHMARK_TICKER}: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
     if hard_exits:
@@ -803,7 +870,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V9.9 starting...")
+    log.info("Lorentzian Scanner V10.0 starting...")
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
     # dollar-volume / momentum / RS filters and can log bad prices to Sheets.
