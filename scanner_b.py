@@ -1,7 +1,7 @@
 """
-Lorentzian Scanner B — v10.0 (Benchmark fix + rotation snapshot)
+Lorentzian Scanner B — v10.1 (Per-signal sector rotation tag)
 ===========================
-Changes from v10.0:
+Changes from v10.1:
 - FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
   and defaulting to BULL with $0.00 — corrupted the RS-vs-SPY filter.
   Now flattens MultiIndex before lowercasing. Same guard added to _clean_df.
@@ -36,7 +36,7 @@ MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
 SPY_EMA_PERIOD     = 21       # candles for benchmark regime EMA
-# v10.0: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
+# v10.1: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
 # SPY is cap-weighted and mega-cap-tech dominated, so it printed BEAR while our
 # small/mid-cap universe was rallying. IWM = Russell 2000 ETF.
 BENCHMARK_TICKER   = os.getenv("BENCHMARK_TICKER", "IWM")
@@ -49,6 +49,24 @@ SECTOR_ETFS = {
     "XLP": "Staples",     "XLU": "Utilities",   "XLB": "Materials",
     "XLRE": "RealEstate", "XLC": "Comms",
 }
+
+# yfinance .info["sector"] strings -> SECTOR_ETFS labels (for per-signal tagging)
+YF_SECTOR_TO_LABEL = {
+    "Technology":             "Tech",
+    "Financial Services":     "Financials",
+    "Healthcare":             "Health",
+    "Energy":                 "Energy",
+    "Industrials":            "Industrials",
+    "Consumer Cyclical":      "Discretionary",
+    "Consumer Defensive":     "Staples",
+    "Utilities":              "Utilities",
+    "Basic Materials":        "Materials",
+    "Real Estate":            "RealEstate",
+    "Communication Services": "Comms",
+}
+
+# label -> (pct_5d, rank, total); refreshed each scan by get_rotation_snapshot()
+_SECTOR_RANK: dict = {}
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
 MAX_HOLD_DAYS      = 5        # auto-close after 5 trading days (KNN predicts 4-bar moves — signal decays)
 MIN_MARKET_CAP     = 200_000_000       # $200M floor — filter micro caps / penny stocks
@@ -254,6 +272,10 @@ def get_rotation_snapshot() -> str:
             if (r := _etf_pct(close, sym, 5)) is not None]
     secs.sort(key=lambda x: -x[1])
 
+    _SECTOR_RANK.clear()
+    for _i, (_lbl, _r) in enumerate(secs, start=1):
+        _SECTOR_RANK[_lbl] = (_r, _i, len(secs))
+
     lines = []
     if sizes:
         lead = " &gt; ".join(f"{lbl} {r:+.1f}%" for lbl, r in sizes)
@@ -264,6 +286,23 @@ def get_rotation_snapshot() -> str:
         lines.append(f"<i>Sectors 5d ▲ {top}</i>")
         lines.append(f"<i>Sectors 5d ▼ {bot}</i>")
     return "\n".join(lines)
+
+
+def sector_rotation_tag(sector_name: str) -> str:
+    """
+    Compact rotation standing for a stock sector, e.g.
+    " | Financials \u25b2 +1.4% (#2/11)". Empty string when unknown.
+    Informational only.
+    """
+    if not _SECTOR_RANK or not sector_name:
+        return ""
+    label = YF_SECTOR_TO_LABEL.get(sector_name)
+    if label is None or label not in _SECTOR_RANK:
+        return ""
+    pct, rank, total = _SECTOR_RANK[label]
+    third = max(1, total // 3)
+    icon = "\u25b2" if rank <= third else ("\u25bc" if rank > total - third else "\u25ac")
+    return f" | {label} {icon} {pct:+.1f}% (#{rank}/{total})"
 
 
 def get_premarket_gap(ticker: str, ref_close: float) -> str:
@@ -633,7 +672,7 @@ def run_scan():
         log.info("Rotation:\n%s", rotation_text)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V10.0 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V10.1 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>{BENCHMARK_TICKER} regime: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
@@ -775,7 +814,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v10.0] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v10.1] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -799,7 +838,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v10.0] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v10.1] SIGNALS</b>\n"
            f"{BENCHMARK_TICKER}: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -837,9 +876,10 @@ def run_scan():
         for s in buys:
             tv   = f'{TV_BASE_URL}{s["ticker"]}'
             pm   = get_premarket_gap(s["ticker"], s["price"])
+            sec  = sector_rotation_tag(get_sector(s["ticker"]))
             msg += (f'<a href="{tv}"><b>{s["ticker"]}</b></a> '
                     f'${s["price"]} | vwap ${s["vwap"]} | vote {s["vote"]:+d} | '
-                    f'{s["size"]} | stop ${s["stop"]}{pm}\n')
+                    f'{s["size"]} | stop ${s["stop"]}{pm}{sec}\n')
         msg += "\n"
 
     if not buys and not hard_exits and not review_flags:
@@ -870,7 +910,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V10.0 starting...")
+    log.info("Lorentzian Scanner V10.1 starting...")
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
     # dollar-volume / momentum / RS filters and can log bad prices to Sheets.
