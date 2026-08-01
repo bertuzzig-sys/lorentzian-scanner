@@ -30,7 +30,7 @@ MAX_MARKET_CAP = int(os.getenv("MAX_MARKET_CAP", 300_000_000_000))    # $300B ce
 MIN_PRICE_SCR  = float(os.getenv("MIN_PRICE", 5.0))
 MIN_AVG_VOL    = int(os.getenv("MIN_AVG_VOL", 300_000))               # 3m avg shares/day
 MIN_UNIVERSE   = int(os.getenv("MIN_UNIVERSE", 300))   # reject any source smaller
-MAX_UNIVERSE   = int(os.getenv("MAX_UNIVERSE", 1400))  # cap scan time / yf load
+MAX_UNIVERSE   = int(os.getenv("MAX_UNIVERSE", 2200))  # cap scan time / yf load
 CACHE_PATH     = "/tmp/universe_cache.json"
 CACHE_TTL_S    = 6 * 24 * 3600     # refresh weekly-ish
 
@@ -87,8 +87,16 @@ def _yahoo_screen_universe() -> list:
         offset += page
         time.sleep(0.5)          # be polite; Yahoo rate-limits aggressively
 
-    out = sorted({s.replace(".", "-") for s in syms if s and len(s) <= 6})
-    log.info("Yahoo screener returned %d symbols", len(out))
+    # Preserve the market-cap DESC order the screener returned. Sorting here
+    # (e.g. sorted(set(...))) would make the MAX_UNIVERSE slice alphabetical,
+    # silently dropping every ticker after ~"M". That bug shipped once.
+    seen, out = set(), []
+    for s in syms:
+        s = (s or "").replace(".", "-")
+        if s and len(s) <= 6 and s not in seen:
+            seen.add(s)
+            out.append(s)
+    log.info("Yahoo screener returned %d symbols (market-cap order)", len(out))
     return out
 
 
