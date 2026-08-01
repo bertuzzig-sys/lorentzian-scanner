@@ -71,6 +71,13 @@ STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
 MAX_HOLD_DAYS      = 5        # auto-close after 5 trading days (KNN predicts 4-bar moves — signal decays)
 MIN_MARKET_CAP     = 800_000_000       # $800M floor — no micro caps (v10.2)
 MAX_MARKET_CAP     = 300_000_000_000   # $300B ceiling — filter mega caps
+
+# Manual trigger: run a full scan off-schedule (e.g. a weekend) WITHOUT writing
+# to Sheets. Used to validate a change on real data without polluting the log.
+MANUAL_DRY_RUN     = os.getenv("MANUAL_DRY_RUN", "false").lower() == "true"
+# True when the universe source already applied the market-cap band, so the
+# per-ticker fast_info lookup can be skipped (saves ~1 API call per ticker).
+MCAP_PREFILTERED   = False
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
@@ -539,8 +546,8 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
             return None
 
         # ── Market cap gate: $200M – $300B sweet spot ─────────────────────────────
-        mcap = get_market_cap(ticker)
-        if mcap > 0:   # 0 = unknown, skip filter rather than block
+        mcap = 0.0 if MCAP_PREFILTERED else get_market_cap(ticker)
+        if mcap > 0:   # 0 = unknown/pre-filtered, skip rather than block
             if mcap < MIN_MARKET_CAP:
                 counters["mcap_micro"] = counters.get("mcap_micro", 0) + 1
                 return None
@@ -628,9 +635,10 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
 
 def run_scan():
     global MIN_VOTE, SPY_REGIME, PC_RATIO, PC_REGIME
+    global MCAP_PREFILTERED
 
     # Skip weekends — markets are closed
-    if date.today().weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+    if date.today().weekday() >= 5 and not MANUAL_DRY_RUN:  # 5 = Sat, 6 = Sun
         log.info("Weekend (%s) — skipping scan.", date.today().strftime("%A"))
         return
 
@@ -650,6 +658,9 @@ def run_scan():
     tickers        = filter_excluded(raw_tickers)
     excluded_count = len(raw_tickers) - len(tickers)
     log.info("Universe source: %s (%d tickers)", universe_src, len(raw_tickers))
+    MCAP_PREFILTERED = universe_src.startswith("Yahoo screener")
+    if MCAP_PREFILTERED:
+        log.info("Universe pre-filtered by market cap — skipping per-ticker lookup.")
     log.info("Universe: %d tickers (%d excluded)", len(tickers), excluded_count)
 
     # ── 3. Download all bars ──────────────────────────────────────────────────
@@ -700,7 +711,9 @@ def run_scan():
         log.info("Rotation:\n%s", rotation_text)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V10.2 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V10.2 [LC+VWAP]</b>"
+        + ("  🧪 <b>DRY RUN</b>\n" if MANUAL_DRY_RUN else "\n")
+        +
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Universe: {universe_src}</i>\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
@@ -922,11 +935,13 @@ def run_scan():
     send_alert(msg)
 
     # ── 9. Log new signals to Sheets ─────────────────────────────────────────
-    if buys or reentries:
+    if (buys or reentries) and not MANUAL_DRY_RUN:
         sheets_logger.log_signals(scan_date, buys, reentries)
+    elif MANUAL_DRY_RUN and (buys or reentries):
+        log.info("DRY RUN — not logging %d signal(s) to Sheets.", len(buys) + len(reentries))
 
     # ── 10. Mark exited positions CLOSED in Sheets ────────────────────────────
-    if hard_exits and ws:
+    if hard_exits and ws and not MANUAL_DRY_RUN:
         sheets_logger.close_positions(ws, [
             {
                 "row_idx":     e["row_idx"],
@@ -936,6 +951,8 @@ def run_scan():
             }
             for e in hard_exits
         ])
+    elif hard_exits and MANUAL_DRY_RUN:
+        log.info("DRY RUN — not closing %d position(s) in Sheets.", len(hard_exits))
 
 
 if __name__ == "__main__":
