@@ -1,7 +1,7 @@
 """
-Lorentzian Scanner B — v10.1 (Per-signal sector rotation tag)
+Lorentzian Scanner B — v10.2 (Real universe + $800M floor)
 ===========================
-Changes from v10.1:
+Changes from v10.2:
 - FIX: SPY regime fetch was silently failing (MultiIndex columns from yfinance)
   and defaulting to BULL with $0.00 — corrupted the RS-vs-SPY filter.
   Now flattens MultiIndex before lowercasing. Same guard added to _clean_df.
@@ -21,7 +21,7 @@ import yfinance as yf
 from advanced_ta import LorentzianClassification
 
 from alerts import send_alert
-from tickers import get_sp500, get_nasdaq100, filter_excluded, EXCLUDED_TICKERS
+from tickers import get_universe, filter_excluded, EXCLUDED_TICKERS
 import sheets_logger
 
 logging.basicConfig(
@@ -36,7 +36,7 @@ MIN_PRICE          = 5.0
 BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
 BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
 SPY_EMA_PERIOD     = 21       # candles for benchmark regime EMA
-# v10.1: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
+# v10.2: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
 # SPY is cap-weighted and mega-cap-tech dominated, so it printed BEAR while our
 # small/mid-cap universe was rallying. IWM = Russell 2000 ETF.
 BENCHMARK_TICKER   = os.getenv("BENCHMARK_TICKER", "IWM")
@@ -69,7 +69,7 @@ YF_SECTOR_TO_LABEL = {
 _SECTOR_RANK: dict = {}
 STOP_LOSS_PCT      = 0.04     # hard stop: exit if position down ≥ 4%
 MAX_HOLD_DAYS      = 5        # auto-close after 5 trading days (KNN predicts 4-bar moves — signal decays)
-MIN_MARKET_CAP     = 200_000_000       # $200M floor — filter micro caps / penny stocks
+MIN_MARKET_CAP     = 800_000_000       # $800M floor — no micro caps (v10.2)
 MAX_MARKET_CAP     = 300_000_000_000   # $300B ceiling — filter mega caps
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
@@ -619,9 +619,10 @@ def run_scan():
     log.info("Monitoring %d open positions for exits", len(open_positions))
 
     # ── 2. Build universe ─────────────────────────────────────────────────────
-    raw_tickers    = list(set(get_sp500() + get_nasdaq100()))
+    raw_tickers, universe_src = get_universe()
     tickers        = filter_excluded(raw_tickers)
     excluded_count = len(raw_tickers) - len(tickers)
+    log.info("Universe source: %s (%d tickers)", universe_src, len(raw_tickers))
     log.info("Universe: %d tickers (%d excluded)", len(tickers), excluded_count)
 
     # ── 3. Download all bars ──────────────────────────────────────────────────
@@ -672,8 +673,9 @@ def run_scan():
         log.info("Rotation:\n%s", rotation_text)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V10.1 [LC+VWAP]</b>\n"
+        f"🔍 <b>Lorentzian Scanner V10.2 [LC+VWAP]</b>\n"
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
+        f"<i>Universe: {universe_src}</i>\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>{BENCHMARK_TICKER} regime: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
@@ -814,7 +816,7 @@ def run_scan():
 
     # Filter breakdown
     send_alert(
-        f"📊 <b>[LC+VWAP v10.1] Filter breakdown</b>\n"
+        f"📊 <b>[LC+VWAP v10.2] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -838,7 +840,7 @@ def run_scan():
 
     # Main signals message
     spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v10.1] SIGNALS</b>\n"
+    msg = (f"🎯 <b>[LC+VWAP v10.2] SIGNALS</b>\n"
            f"{BENCHMARK_TICKER}: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
@@ -910,7 +912,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V10.1 starting...")
+    log.info("Lorentzian Scanner V10.2 starting...")
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
     # dollar-volume / momentum / RS filters and can log bad prices to Sheets.
