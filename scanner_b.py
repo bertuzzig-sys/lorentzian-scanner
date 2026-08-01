@@ -23,6 +23,7 @@ from advanced_ta import LorentzianClassification
 from alerts import send_alert
 from tickers import get_universe, filter_excluded, EXCLUDED_TICKERS
 import sheets_logger
+import health
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +79,10 @@ MANUAL_DRY_RUN     = os.getenv("MANUAL_DRY_RUN", "false").lower() == "true"
 # True when the universe source already applied the market-cap band, so the
 # per-ticker fast_info lookup can be skipped (saves ~1 API call per ticker).
 MCAP_PREFILTERED   = False
+# Canary tickers: liquid names that must survive the universe build. If these
+# vanish, the universe is being silently truncated or a source has degraded.
+CANARY_TICKERS     = [t.strip() for t in os.getenv(
+    "CANARY_TICKERS", "MU,SNDK,CRDO,BE,RIOT,ARWR").split(",") if t.strip()]
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
@@ -642,6 +647,7 @@ def run_scan():
         log.info("Weekend (%s) — skipping scan.", date.today().strftime("%A"))
         return
 
+    scan_started = time.time()
     scan_date = date.today().isoformat()
     log.info("=== Lorentzian v9.0 scan — %s ===", scan_date)
 
@@ -855,6 +861,19 @@ def run_scan():
     reentries = []   # removed in v9.0 — fresh flips only
 
     # Filter breakdown
+    health_metrics = {
+        "universe_src": universe_src, "universe_size": len(raw_tickers),
+        "canary_missing": [t for t in CANARY_TICKERS if t not in set(raw_tickers)],
+        "scanned": len(tickers), "no_data": counters["no_data"],
+        "passed": counters["passed"],
+        "benchmark": BENCHMARK_TICKER, "benchmark_last": spy_last, "benchmark_ema": spy_ema,
+        "pc_ratio": PC_RATIO, "open_positions": len(open_tickers),
+        "max_positions": MAX_OPEN_POSITIONS,
+        "scan_seconds": time.time() - scan_started,
+        "premarket_snapshot": premarket_snapshot, "rotation_text": rotation_text,
+    }
+    health_issues = health.evaluate(health_metrics)
+
     send_alert(
         f"📊 <b>[LC+VWAP v10.2] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
@@ -876,6 +895,7 @@ def run_scan():
         f"ℹ️ Early flip (stat): {counters['early_flip']}\n"
         f"🟡 VWAP rejected: {counters['vwap_rejected']}\n"
         f"📋 Open positions: {len(open_tickers)} / {MAX_OPEN_POSITIONS}"
+        f"\n{health.summary_line(health_issues)}"
     )
 
     # Main signals message
@@ -933,6 +953,11 @@ def run_scan():
     elif PC_REGIME == "FEAR":
         msg += "💡 <i>P/C above 1.00 — elevated fear. Signals are higher conviction.</i>"
     send_alert(msg)
+
+    if health_issues:
+        send_alert(health.format_alert(health_issues))
+        for _sev, _msg in health_issues:
+            log.warning("HEALTH %s: %s", _sev, _msg)
 
     # ── 9. Log new signals to Sheets ─────────────────────────────────────────
     if (buys or reentries) and not MANUAL_DRY_RUN:
