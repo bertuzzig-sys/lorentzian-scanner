@@ -399,6 +399,33 @@ def us_market_open_now() -> bool:
     return (13 * 60 + 30) <= minutes < (21 * 60)
 
 
+def universe_selftest():
+    """
+    Boot-time check: report which universe source is live, how many tickers it
+    returned, and whether key watchlist names are covered. Sends one Telegram
+    message. Wrapped so it can never block startup.
+    """
+    if os.getenv("UNIVERSE_SELFTEST", "true").lower() != "true":
+        return
+    try:
+        tickers, src = get_universe(use_cache=False)
+        watch   = ["MU", "SNDK", "CRDO", "BE", "RIOT", "ARWR"]
+        present = [t for t in watch if t in tickers]
+        missing = [t for t in watch if t not in tickers]
+        tradable = filter_excluded(tickers)
+        send_alert(
+            "\U0001f9ed <b>Universe check</b>\n"
+            f"Source: <b>{src}</b>\n"
+            f"Tickers: <b>{len(tickers)}</b> (tradable after exclusions: {len(tradable)})\n"
+            f"Cap band: {MIN_MARKET_CAP/1e6:.0f}M - {MAX_MARKET_CAP/1e9:.0f}B\n"
+            f"Watchlist found: {', '.join(present) if present else 'none'}\n"
+            f"Watchlist missing: {', '.join(missing) if missing else 'none'}"
+        )
+        log.info("Universe self-test: %s -> %d tickers", src, len(tickers))
+    except Exception as exc:
+        log.warning("Universe self-test failed: %s", exc)
+
+
 def run_scan_locked():
     """Run scan with an exclusive file lock — skips if another scan is already running."""
     try:
@@ -913,6 +940,7 @@ def run_scan():
 
 if __name__ == "__main__":
     log.info("Lorentzian Scanner V10.2 starting...")
+    universe_selftest()
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
     # dollar-volume / momentum / RS filters and can log bad prices to Sheets.
