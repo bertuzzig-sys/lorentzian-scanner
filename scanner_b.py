@@ -89,8 +89,11 @@ YF_SECTOR_TO_LABEL = {
 _SECTOR_RANK: dict = {}
 STOP_LOSS_PCT      = 0.08     # v11.0: 8% stop — walk-forward validated (see docstring)
 MAX_HOLD_DAYS      = 10       # v11.0: 10-day hold — walk-forward validated
-MIN_MARKET_CAP     = 800_000_000       # $800M floor — no micro caps (v11.0)
-MAX_MARKET_CAP     = 300_000_000_000   # $300B ceiling — filter mega caps
+# Read from the SAME env vars tickers.py uses, so the universe band and the
+# per-ticker safety net can never disagree (they did: labels said $800M while
+# the live floor was $10B).
+MIN_MARKET_CAP     = int(os.getenv("MIN_MARKET_CAP", 800_000_000))
+MAX_MARKET_CAP     = int(os.getenv("MAX_MARKET_CAP", 300_000_000_000))
 
 # Manual trigger: run a full scan off-schedule (e.g. a weekend) WITHOUT writing
 # to Sheets. Used to validate a change on real data without polluting the log.
@@ -751,7 +754,8 @@ def run_scan():
         f"{rotation_block}"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
         f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
-        f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · Hold {EXIT_DAYS}d</i>\n"
+        f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · "
+        f"Hold {MAX_HOLD_DAYS}d (review {EXIT_DAYS}d) · half size</i>\n"
         f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>"
     )
 
