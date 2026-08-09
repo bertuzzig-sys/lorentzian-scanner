@@ -41,6 +41,7 @@ from advanced_ta import LorentzianClassification
 
 from alerts import send_alert
 from tickers import get_universe, filter_excluded, EXCLUDED_TICKERS
+import minervini
 import sheets_logger
 import health
 
@@ -106,6 +107,19 @@ MCAP_PREFILTERED   = False
 CANARY_TICKERS     = [t.strip() for t in os.getenv(
     "CANARY_TICKERS", "MU,SNDK,CRDO,BE,RIOT,ARWR").split(",") if t.strip()]
 VOLUME_MIN_RATIO   = 0.80     # today's volume must be ≥ 80% of 20-day avg
+
+# ── Minervini Trend Template (v12 candidate — OFF until backtested) ──────────
+# Gates long signals on the 8-point trend template. Defaults to OFF so the
+# deploy is a no-op; enable with USE_MINERVINI=true only after backtest.py
+# --minervini shows it beats the v11.0 baseline (PF 1.40, +0.763%/trade).
+USE_MINERVINI       = os.getenv("USE_MINERVINI", "false").lower() == "true"
+MINERVINI_MIN_RS    = float(os.getenv("MINERVINI_MIN_RS", "70"))
+# RS rank is cross-sectional over the scanned universe, NOT the full market.
+# On a mid/small-cap universe a rank of 70 means "top 30% of these ~600", which
+# is a weaker claim than IBD's market-wide 70. Read it accordingly.
+MINERVINI_REQUIRE_RS = os.getenv("MINERVINI_REQUIRE_RS", "true").lower() == "true"
+# Latest cross-sectional RS rank per ticker; rebuilt each scan in run_scan().
+_RS_RANKS: dict = {}
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
 MAX_OPEN_POSITIONS = 10       # no new signals when 10 positions already open
@@ -475,7 +489,13 @@ def run_scan_locked():
         lock.close()
 
 
-def fetch_all_bars(tickers, days=365):
+def fetch_all_bars(tickers, days=None):
+    # 365d ≈ 250 trading bars — fine for v11.0, but too short for the Minervini
+    # template (needs 222 for the 200MA slope, 252 for the 52w range). Only widen
+    # the window when the gate is on, so enabling it is the single switch that
+    # changes download volume.
+    if days is None:
+        days = 500 if USE_MINERVINI else 365
     all_data   = {}
     chunk_size = 50
     n_chunks   = (len(tickers) + chunk_size - 1) // chunk_size
@@ -617,6 +637,23 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
                 counters["ema50_fail"] = counters.get("ema50_fail", 0) + 1
                 return None
 
+        # ── Minervini trend template ──────────────────────────────────────
+        # Placed before _run_lc: rejecting here skips the expensive KNN call.
+        # Note c5 (price > 50-day SMA) partially duplicates the EMA50 gate
+        # above — SMA vs EMA, so they are not identical but are correlated.
+        if USE_MINERVINI:
+            passed_mv, mv_reason = minervini.passes(
+                df,
+                rs_rank=_RS_RANKS.get(ticker),
+                min_rs=MINERVINI_MIN_RS,
+                require_rs=MINERVINI_REQUIRE_RS,
+            )
+            if not passed_mv:
+                key = f"mv_{mv_reason}"
+                counters[key] = counters.get(key, 0) + 1
+                counters["minervini_fail"] = counters.get("minervini_fail", 0) + 1
+                return None
+
         # ── RSI gate: 40–70 (no oversold bounces, no overbought chasing) ────
         if len(df) >= 15:
             delta  = df["close"].diff()
@@ -704,6 +741,20 @@ def run_scan():
 
     no_data_count = sum(1 for t in tickers if t not in all_bars)
 
+    # ── Cross-sectional RS ranks for the Minervini gate ──────────────────────
+    # Ranked across the scanned universe only, on this bar only (no look-ahead).
+    global _RS_RANKS
+    if USE_MINERVINI:
+        try:
+            _RS_RANKS = minervini.rs_rank_latest(
+                {s_: d_ for s_, d_ in all_bars.items() if s_ in set(tickers)}
+            )
+            log.info("Minervini: RS ranks computed for %d tickers", len(_RS_RANKS))
+        except Exception as exc:
+            log.warning("Minervini RS rank build failed (%s) — gate will reject "
+                        "on rs_unavailable rather than pass silently", exc)
+            _RS_RANKS = {}
+
     # ── 4. Market regime (SPY 21-EMA + Put/Call ratio) ───────────────────────
     SPY_REGIME, spy_1d_return, spy_ema = get_spy_regime(all_bars)
     spy_df   = all_bars.get(BENCHMARK_TICKER)
@@ -753,7 +804,8 @@ def run_scan():
         f"<i>Pre-market: {premarket_snapshot}</i>\n"
         f"{rotation_block}"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
-        f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap</i>\n"
+        f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap"
+        f"{' + Minervini (RS≥' + str(int(MINERVINI_MIN_RS)) + ')' if USE_MINERVINI else ''}</i>\n"
         f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · "
         f"Hold {MAX_HOLD_DAYS}d (review {EXIT_DAYS}d) · half size</i>\n"
         f"<i>Excluded: oil/gas, weapons, drones ({len(EXCLUDED_TICKERS)} tickers)</i>"
@@ -766,6 +818,7 @@ def run_scan():
         "low_volume": 0, "rs_fail": 0, "momentum_fail": 0,
         "passed": 0, "vwap_rejected": 0, "early_flip": 0,
         "earnings_skip": 0, "dedup_skip": 0, "sector_skip": 0, "cap_skip": 0,
+        "minervini_fail": 0,
     }
     raw_signals  = []
     universe_set = set(tickers)
