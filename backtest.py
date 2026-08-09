@@ -40,6 +40,8 @@ import pandas as pd
 import yfinance as yf
 from advanced_ta import LorentzianClassification
 
+import minervini
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s",
                     datefmt="%H:%M:%S")
 log = logging.getLogger("backtest")
@@ -190,7 +192,7 @@ def simulate_exit(bars, sig_i, rules, signal_series, ticker, vote, regime):
 
 # ── Signal generation (entry held CONSTANT across exit variants) ─────────────
 
-def collect_signals(df, lc, bench_ctx, start_ts):
+def collect_signals(df, lc, bench_ctx, start_ts, mv_cfg=None, rs_series=None):
     """Return [(bar_index, vote, regime)] for every fresh long flip that passes gates."""
     vwap  = _weekly_vwap(df)
     avg20 = df["volume"].rolling(20).mean().shift(1)
@@ -202,6 +204,14 @@ def collect_signals(df, lc, bench_ctx, start_ts):
     gain  = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
     loss  = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
     rsi   = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+
+    # Minervini template as a full series, so bar i sees only trailing data —
+    # identical code path to the live scanner.
+    mv_ok = None
+    if mv_cfg:
+        mv_ok = minervini.template_series(df)
+        if rs_series is not None:
+            rs_series = rs_series.reindex(df.index)
 
     out = []
     for i in range(100, len(df) - 1):
@@ -223,6 +233,13 @@ def collect_signals(df, lc, bench_ctx, start_ts):
         r = rsi.iloc[i]
         if pd.notna(r) and not (40 <= float(r) <= 70):
             continue
+        if mv_ok is not None:
+            if i < minervini.MIN_BARS or not bool(mv_ok.iloc[i]):
+                continue
+            if mv_cfg.get("require_rs", True):
+                rr = rs_series.iloc[i] if rs_series is not None else np.nan
+                if pd.isna(rr) or float(rr) < mv_cfg["min_rs"]:
+                    continue
         wv = vwap.iloc[i]
         if pd.isna(wv) or c <= float(wv):
             continue
@@ -243,14 +260,14 @@ def _weekly_vwap(df):
     return v
 
 
-def run_ticker(ticker, df, bench_ctx, start_ts, rules_list):
+def run_ticker(ticker, df, bench_ctx, start_ts, rules_list, mv_cfg=None, rs_series=None):
     try:
         lc = LorentzianClassification(df.copy(), features=_LC_FEATURES,
                                       filterSettings=_lc_filters()).df
     except Exception as exc:
         log.debug("LC failed %s: %s", ticker, exc)
         return []
-    sigs = collect_signals(df, lc, bench_ctx, start_ts)
+    sigs = collect_signals(df, lc, bench_ctx, start_ts, mv_cfg, rs_series)
     if not sigs:
         return []
     trades = []
@@ -399,6 +416,12 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0, help="cap ticker count (speed)")
     ap.add_argument("--telegram", action="store_true")
+    ap.add_argument("--minervini", action="store_true",
+                    help="apply the Minervini trend template gate")
+    ap.add_argument("--min-rs", type=float, default=70.0,
+                    help="min cross-sectional RS rank (0-100) when --minervini")
+    ap.add_argument("--no-rs", action="store_true",
+                    help="apply criteria 1-7 only, skip the RS rank criterion")
     a = ap.parse_args()
 
     tickers = [t.upper() for t in a.tickers] if a.tickers else \
@@ -413,9 +436,22 @@ def main():
              start.date(), ctx.index[-1].date(), len(tickers), len(PRESETS))
 
     bars = fetch_bars(tickers, a.years)
+
+    mv_cfg = rs_panel = None
+    if a.minervini:
+        mv_cfg = {"min_rs": a.min_rs, "require_rs": not a.no_rs}
+        # Ranked across the backtest universe — same construction as the live
+        # scanner. NOTE: that universe is today's index membership, so the RS
+        # ranking inherits survivorship bias and flatters older years.
+        rs_panel = minervini.rs_rank_panel(bars) if not a.no_rs else None
+        log.info("Minervini gate ON (min_rs=%.0f, require_rs=%s)",
+                 a.min_rs, not a.no_rs)
+
     trades = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=a.workers) as pool:
-        futs = {pool.submit(run_ticker, s, d, ctx, start, PRESETS): s for s, d in bars.items()}
+        futs = {pool.submit(run_ticker, s, d, ctx, start, PRESETS, mv_cfg,
+                            rs_panel[s] if rs_panel is not None and s in rs_panel else None): s
+                for s, d in bars.items()}
         for n, f in enumerate(concurrent.futures.as_completed(futs), 1):
             try:
                 trades.extend(f.result())
