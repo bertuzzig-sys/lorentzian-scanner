@@ -215,7 +215,7 @@ def has_near_earnings(ticker: str, trading_days: int = EARNINGS_SKIP_DAYS) -> bo
     except Exception:
         return False  # if we can't tell, don't block the signal
 
-def GREED/FEAR overlay never:
+def _cboe_equity_pc():
     """
     Equity put/call ratio from Cboe's daily market statistics page.
 
