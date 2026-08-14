@@ -211,9 +211,67 @@ def has_near_earnings(ticker: str, trading_days: int = EARNINGS_SKIP_DAYS) -> bo
         earn_dt = pd.Timestamp(earn_date).normalize()
         today   = pd.Timestamp(date.today())
         bdays   = len(pd.bdate_range(today, earn_dt))
-        return 0 <= bdays <= trading_days
+        return 1 <= bdays <= trading_days
     except Exception:
         return False  # if we can't tell, don't block the signal
+
+def _cboe_equity_pc():
+    """
+    Equity put/call ratio from Cboe's daily market statistics page.
+
+    Yahoo delisted ^CPCE and ^CPC, so that feed has been returning nothing and
+    the scanner silently fell back to the 0.85 neutral value on every run —
+    meaning the GREED/FEAR overlay never actually fired. This is the primary
+    source now; the Yahoo attempt below is kept only as a fallback.
+
+    The page is server-rendered and embeds the figure as JSON, e.g.
+        "name":"EQUITY PUT/CALL RATIO","value":"0.59"
+    It reflects the last settled session, which is what a pre-open scan wants.
+
+    Returns None on any failure so the caller falls through.
+    """
+    import re
+    import urllib.request
+
+    url = "https://www.cboe.com/us/options/market_statistics/daily/"
+    hdrs = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/124.0 Safari/537.36"}
+    try:
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            html = resp.read().decode("utf-8", "replace")
+    except Exception as exc:
+        log.warning("Cboe P/C fetch failed: %s", exc)
+        return None
+
+    m = re.search(r"EQUITY PUT/CALL RATIO.{0,40}?([0-9]+\.[0-9]+)", html)
+    if not m:
+        log.warning("Cboe P/C: label not found — page layout may have changed")
+        return None
+
+    val = float(m.group(1))
+    if not (0.3 < val < 3.0):
+        log.warning("Cboe P/C outside sane range: %.2f", val)
+        return None
+
+    # Freshness guard: the page carries the session date it refers to. Without
+    # this a frozen page would look like a healthy read forever.
+    d = re.search(r"(20[0-9]{2}-[01][0-9]-[0-3][0-9])", html)
+    if d:
+        try:
+            age = (date.today() - date.fromisoformat(d.group(1))).days
+            if age > 5:
+                log.warning("Cboe P/C stale: %s is %d days old", d.group(1), age)
+                return None
+            log.info("P/C ratio (Cboe %s): %.2f", d.group(1), val)
+            return val
+        except ValueError:
+            pass
+
+    log.info("P/C ratio (Cboe): %.2f", val)
+    return val
+
 
 def get_put_call_ratio() -> float:
     """
@@ -222,6 +280,13 @@ def get_put_call_ratio() -> float:
     P/C < 0.70 = everyone bullish (GREED, be careful)
     P/C > 1.00 = everyone fearful (FEAR, be aggressive)
     """
+    # Primary source: Cboe daily market statistics. Yahoo delisted ^CPCE/^CPC,
+    # so the loop below always fell through to the 0.85 neutral and the
+    # GREED/FEAR overlay never actually fired. Kept as a fallback only.
+    val = _cboe_equity_pc()
+    if val is not None:
+        return val
+
     for sym in ("^CPCE", "^CPC"):
         try:
             df = yf.download(sym, period="5d", interval="1d",
@@ -710,7 +775,7 @@ def run_scan():
 
     scan_started = time.time()
     scan_date = date.today().isoformat()
-    log.info("=== Lorentzian v9.0 scan — %s ===", scan_date)
+    log.info("=== Lorentzian v11.0 scan — %s ===", scan_date)
 
     # ── 1. Load open positions from Sheets ───────────────────────────────────
     open_positions, ws = sheets_logger.get_open_positions()
@@ -773,7 +838,7 @@ def run_scan():
         MIN_VOTE  = BULL_MIN_VOTE if SPY_REGIME == "BULL" else BEAR_MIN_VOTE
 
     pc_icon = {"GREED": "🟡 GREED", "NEUTRAL": "⚪ NEUTRAL", "FEAR": "🟢 FEAR"}[PC_REGIME]
-    log.info("SPY regime: %s (close=%.2f ema=%.2f)", SPY_REGIME, spy_last, spy_ema)
+    log.info("%s regime: %s (close=%.2f ema=%.2f)", BENCHMARK_TICKER, SPY_REGIME, spy_last, spy_ema)
     log.info("P/C ratio: %.2f → %s | Final MIN_VOTE=%d", PC_RATIO, PC_REGIME, MIN_VOTE)
 
     # Pre-load sectors for open positions (to enforce sector cap on new signals)
@@ -965,6 +1030,8 @@ def run_scan():
         f"❌ Low vol (20d avg): {counters['low_volume']}\n"
         f"❌ RS vs {BENCHMARK_TICKER}: {counters['rs_fail']}\n"
         f"❌ Momentum &lt;0.5%: {counters['momentum_fail']}\n"
+        f"❌ Below 50-EMA: {counters.get('ema50_fail', 0)}\n"
+        f"❌ RSI outside 40-70: {counters.get('rsi_gate', 0)}\n"
         f"❌ Near earnings: {counters['earnings_skip']}\n"
         f"❌ Already open (dedup): {counters['dedup_skip']}\n"
         f"❌ Position cap (≥{MAX_OPEN_POSITIONS}): {counters['cap_skip']}\n"
