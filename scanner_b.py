@@ -215,7 +215,7 @@ def has_near_earnings(ticker: str, trading_days: int = EARNINGS_SKIP_DAYS) -> bo
     except Exception:
         return False  # if we can't tell, don't block the signal
 
-def _cboe_equity_pc():
+def GREED/FEAR overlay never:
     """
     Equity put/call ratio from Cboe's daily market statistics page.
 
@@ -287,7 +287,7 @@ def get_put_call_ratio() -> float:
     if val is not None:
         return val
 
-for sym in ("^CPCE", "^CPC"):
+    for sym in ("^CPCE", "^CPC"):
         try:
             df = yf.download(sym, period="5d", interval="1d",
                              auto_adjust=False, progress=False, threads=False)
