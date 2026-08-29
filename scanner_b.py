@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v11.0 (Walk-forward validated config)
+Lorentzian Scanner B — v11.1 (Caps relaxed toward validated config)
 ===========================
 Changes from v11.0 — these are the ONLY settings with out-of-sample evidence:
 - STOP_LOSS_PCT 0.04 -> 0.08
@@ -122,7 +122,14 @@ MINERVINI_REQUIRE_RS = os.getenv("MINERVINI_REQUIRE_RS", "true").lower() == "tru
 _RS_RANKS: dict = {}
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
-MAX_OPEN_POSITIONS = 10       # no new signals when 10 positions already open
+# v11.1: raised 10 -> 20. Since v11.0 the 8% stop means HALF-SIZE positions,
+# so 20 half-size slots = the same gross exposure as the old 10 full-size ones,
+# with identical per-trade risk. The walk-forward that produced +0.76%/trade
+# used NO position cap at all, so this moves live closer to what was validated.
+MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", 20))
+# Max NEW signals per sector per scan. The validated backtest had NO sector cap;
+# this is a judgement call for concentration risk, not a data-derived number.
+MAX_PER_SECTOR     = int(os.getenv("MAX_PER_SECTOR", 3))
 EXIT_DAYS          = 6        # flag for review before the 10d auto-close
 TV_BASE_URL        = "https://www.tradingview.com/chart/?symbol="
 LOCK_FILE          = "/tmp/lorentzian_scan.lock"
@@ -842,12 +849,12 @@ def run_scan():
     log.info("P/C ratio: %.2f → %s | Final MIN_VOTE=%d", PC_RATIO, PC_REGIME, MIN_VOTE)
 
     # Pre-load sectors for open positions (to enforce sector cap on new signals)
-    open_sectors: set[str] = set()
+    sector_counts: dict[str, int] = {}
     for pos in open_positions:
         sec = get_sector(pos["ticker"])
         if sec != "Unknown":
-            open_sectors.add(sec)
-    log.info("Open sectors: %s", sorted(open_sectors))
+            sector_counts[sec] = sector_counts.get(sec, 0) + 1
+    log.info("Sector exposure: %s", dict(sorted(sector_counts.items())))
 
     premarket_snapshot = get_premarket_snapshot()
     log.info("Pre-market: %s", premarket_snapshot)
@@ -910,7 +917,6 @@ def run_scan():
              len(open_tickers), MAX_OPEN_POSITIONS, available_slots)
 
     signals      = []
-    today_sectors: set[str] = set()   # sectors already taken by new signals today
 
     for sig in raw_signals:
         # 1. Skip if already an open position
@@ -931,17 +937,18 @@ def run_scan():
             counters["earnings_skip"] += 1
             continue
 
-        # 4. Sector cap: 1 per sector (skip if open position or today's signal already in sector)
+        # 4. Sector cap: at most MAX_PER_SECTOR positions per sector (open + new)
         sector = get_sector(sig["ticker"])
-        if sector in open_sectors or sector in today_sectors:
-            log.info("[SECTOR SKIP] %s sector '%s' already covered", sig["ticker"], sector)
+        if sector != "Unknown" and sector_counts.get(sector, 0) >= MAX_PER_SECTOR:
+            log.info("[SECTOR SKIP] %s sector '%s' already at %d/%d",
+                     sig["ticker"], sector, sector_counts.get(sector, 0), MAX_PER_SECTOR)
             counters["sector_skip"] += 1
             continue
 
         signals.append(sig)
         available_slots -= 1
         if sector != "Unknown":
-            today_sectors.add(sector)
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
 
     log.info("Scan complete — %d signal(s) (%d earnings / %d dedup / %d cap / %d sector skipped).",
              len(signals), counters["earnings_skip"], counters["dedup_skip"],
