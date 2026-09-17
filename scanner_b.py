@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v11.1 (Caps relaxed toward validated config)
+Lorentzian Scanner B — v11.2 (P/C overlay removed from vote decision)
 ===========================
 Changes from v11.0 — these are the ONLY settings with out-of-sample evidence:
 - STOP_LOSS_PCT 0.04 -> 0.08
@@ -122,7 +122,7 @@ MINERVINI_REQUIRE_RS = os.getenv("MINERVINI_REQUIRE_RS", "true").lower() == "tru
 _RS_RANKS: dict = {}
 EARNINGS_SKIP_DAYS = 5        # skip signal if earnings within N trading days
 MIN_ENTRY_MOMENTUM = 0.005    # stock must be up ≥ 0.5% on entry day (no flat/red buys)
-# v11.1: raised 10 -> 20. Since v11.0 the 8% stop means HALF-SIZE positions,
+# v11.2: raised 10 -> 20. Since v11.0 the 8% stop means HALF-SIZE positions,
 # so 20 half-size slots = the same gross exposure as the old 10 full-size ones,
 # with identical per-trade risk. The walk-forward that produced +0.76%/trade
 # used NO position cap at all, so this moves live closer to what was validated.
@@ -832,17 +832,18 @@ def run_scan():
     spy_df   = all_bars.get(BENCHMARK_TICKER)
     spy_last = float(spy_df["close"].iloc[-1]) if spy_df is not None else 0
 
-    # P/C ratio overlay — adjusts vote threshold on top of SPY regime
-    PC_RATIO = get_put_call_ratio()
-    if PC_RATIO < PC_GREED:
-        PC_REGIME = "GREED"
-        MIN_VOTE  = BEAR_MIN_VOTE   # everyone bullish → be defensive, raise bar
-    elif PC_RATIO > PC_FEAR:
-        PC_REGIME = "FEAR"
-        MIN_VOTE  = BULL_MIN_VOTE   # everyone fearful → be aggressive, lower bar
-    else:
-        PC_REGIME = "NEUTRAL"
-        MIN_VOTE  = BULL_MIN_VOTE if SPY_REGIME == "BULL" else BEAR_MIN_VOTE
+    # v11.2: P/C OVERLAY REMOVED from the vote decision.
+    # It was never part of any backtest — bench_context() in walk_forward.py maps
+    # regime -> vote and nothing else, so the validated +0.76%/trade assumed
+    # vote 6 in BULL. The overlay silently returned the 0.85 fallback for weeks
+    # (dead), then started working and read 0.69 -> GREED -> forced MIN_VOTE=8
+    # even when the benchmark said BULL. That is unvalidated config drift
+    # throttling signals. Vote now depends ONLY on the benchmark regime, exactly
+    # as validated. P/C is still fetched and displayed as CONTEXT only.
+    PC_RATIO  = get_put_call_ratio()
+    PC_REGIME = ("GREED" if PC_RATIO < PC_GREED
+                 else "FEAR" if PC_RATIO > PC_FEAR else "NEUTRAL")
+    MIN_VOTE  = BULL_MIN_VOTE if SPY_REGIME == "BULL" else BEAR_MIN_VOTE
 
     pc_icon = {"GREED": "🟡 GREED", "NEUTRAL": "⚪ NEUTRAL", "FEAR": "🟢 FEAR"}[PC_REGIME]
     log.info("%s regime: %s (close=%.2f ema=%.2f)", BENCHMARK_TICKER, SPY_REGIME, spy_last, spy_ema)
@@ -872,7 +873,7 @@ def run_scan():
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
         f"<i>{BENCHMARK_TICKER} regime: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
         f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
-        f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon}</i>\n"
+        f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon} (context only)</i>\n"
         f"<i>Pre-market: {premarket_snapshot}</i>\n"
         f"{rotation_block}"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
