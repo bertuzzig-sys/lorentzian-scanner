@@ -2,7 +2,8 @@
 Ticker universe — layered, fail-safe, and self-reporting.
 
 Universe sources, tried in order (each guarded by MIN_UNIVERSE):
-  1. Yahoo screener  — true market-cap screen ($800M–$300B), NYSE/Nasdaq, liquid.
+  1. S&P 500      — the VALIDATED universe (edge was measured on exactly this)
+  2. Yahoo screener  — true market-cap screen ($800M–$300B), NYSE/Nasdaq, liquid.
                        Includes names S&P indices exclude for profitability or
                        domicile reasons (CRDO, BE, RIOT, ARWR ...).
   2. S&P 1500        — S&P 500 + 400 + 600 from Wikipedia (~1,506 tickers).
@@ -123,6 +124,18 @@ def _wiki_symbols(url: str, name: str) -> list:
     return []
 
 
+def _sp500_universe() -> list:
+    """
+    S&P 500 constituents — THE population the +0.76%/trade edge was measured on.
+    The walk-forward used backtest.get_universe("sp500"), i.e. this exact list.
+    The Yahoo screener at $10B+ is a DIFFERENT population (foreign ADRs, REITs,
+    low-beta names) that produced ~20x fewer signals live than the backtest
+    implied. Validate on one universe, trade the same one.
+    """
+    return _wiki_symbols("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                         "S&P 500")
+
+
 def _sp1500_universe() -> list:
     out = []
     for url, name in (
@@ -217,7 +230,18 @@ def get_universe(use_cache: bool = True) -> tuple[list, str]:
             log.info("Universe from cache: %s (%d)", cached["source"], len(cached["tickers"]))
             return cached["tickers"], f"{cached['source']} [cached]"
 
-    # 1. Yahoo screener
+    # 1. S&P 500 — the validated universe (see _sp500_universe docstring)
+    try:
+        syms = _sp500_universe()
+        if len(syms) >= MIN_UNIVERSE:
+            src = "S&P 500 (validated universe)"
+            _save_cache(syms, src)
+            return syms, src
+        log.warning("S&P 500 too small (%d) — falling back", len(syms))
+    except Exception as exc:
+        log.warning("S&P 500 unavailable: %s", exc)
+
+    # 2. Yahoo screener (different population — see docstring; fallback only)
     try:
         syms = _yahoo_screen_universe()
         if len(syms) >= MIN_UNIVERSE:
@@ -229,7 +253,7 @@ def get_universe(use_cache: bool = True) -> tuple[list, str]:
     except Exception as exc:
         log.warning("Yahoo screener unavailable: %s", exc)
 
-    # 2. S&P 1500 via Wikipedia
+    # 3. S&P 1500 via Wikipedia
     try:
         syms = _sp1500_universe()
         if len(syms) >= MIN_UNIVERSE:
@@ -241,7 +265,7 @@ def get_universe(use_cache: bool = True) -> tuple[list, str]:
     except Exception as exc:
         log.warning("S&P 1500 unavailable: %s", exc)
 
-    # 3. Emergency static floor
+    # 4. Emergency static floor
     log.warning("BOTH live universe sources failed — using stale static list")
     return sorted(set(STATIC_FALLBACK)), "STATIC fallback ⚠️ STALE"
 
