@@ -15,3 +15,10 @@ Pick 1–3 items per run. Each needs a written rationale first (see `PROTOCOL.md
    S&P 500 + IWM benchmark with no market-cap ceiling; live has `MAX_MARKET_CAP=300B`, which drops
    ~25 mega caps the backtest included. Confirm the backtest's ticker count/limit and either match
    live to it or measure the difference.
+6. **FINRA daily short-sale volume ratio as a filter (daily bars only).** Free files at
+   cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt. Noisy (mostly market-maker hedging); needs ~2 years of
+   files and a definition fixed before looking. Not usable on 4h bars. Not now: TRACE (bonds only), ATS weekly
+   dark-pool data (weeks of delay), paid real-time block prints.
+7. **4h rebuild.** Live scanner and all runs so far are DAILY; Gianluca trades the 4h TradingView signal.
+   Blocked on matching TradingView first (see LOG 2026-09-30 F5 check). Then port filters/exits to 4h (defined first),
+   re-run IS/OOS, then re-test the volume-spike idea on 4h.

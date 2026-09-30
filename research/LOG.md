@@ -26,3 +26,11 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Why: 1396 bars pass all gates with a spike+pullback, but the Lorentzian flips long (vote >= 6) on only 3 of them. The signal almost never turns long within 20 days of a spike-and-drop.
 - Side finding: relaxing EMA50 + RSI gates (no spike) adds ~60% more signals with OOS PF 1.47 vs 1.29 (n 809 vs 512). Descriptive only, not a pre-registered hypothesis; would need its own run.
 - Follow-ups: a longer window (spike within 60 bars) would be a NEW hypothesis, defined before running.
+
+## 2026-09-30 — Exploratory: F5 4h, TradingView markers vs Python (NOT pre-registered)
+- Question: does the Python Lorentzian (walk-forward, chart settings: RSI9/WT/CCI/ADX/RSI9, regime -0.1, ADX 20) reproduce the green long markers on Gianluca's 4h TradingView chart?
+- Method: 4h bars from yfinance 60m (09:30 / 13:30 ET). Chart crosshair bar identified as 2026-08-28 13:30 (open matches exactly; H/L/C differ by cents; TV volume 15.79K vs 140K here, so TV uses a smaller feed). Marker dates estimated from pixel positions (+-3-5 bars error).
+- Result: chart shows 8 green markers (Jan-Aug 2026); Python produced 5 long flips (21 Apr, 29 Apr, 29 Jun, 4 Aug, 27 Aug). Within 3 bars: 1 of 8. Within ~9 bars: 4 of 8. The 4 markers in Jan-Mar had no Python flip at all.
+- Verdict: signals do NOT match on 4h. Cause unknown (feed differences, settings not fully known e.g. kernel/trade-with-kernel options, window length). Too imprecise to tune against.
+- Next: exact marker timestamps (TradingView "Export chart data" includes indicator plots) and full indicator settings; then test variants against the exact dates. Do not build the 4h backtest on an unmatched signal.
+- Also observed: 4h TradingView raw rate ~8 long markers per ~10 months on one stock (~0.8/month/stock) before any scanner filters.
