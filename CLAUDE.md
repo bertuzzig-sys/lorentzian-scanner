@@ -32,3 +32,4 @@ Goal: a reliable, evidence-based signal system — NOT a TradingView mirror.
 - Benchmarks: win rate, profit factor, avg return per trade, by market-cap segment.
 - Don't overpromise. Flag uncertainty, failure conditions and caveats before writing code.
 - Use Railway CLI for logs; fine-grained repo-scoped GitHub tokens only.
+- Research runs follow `research/PROTOCOL.md` (max 1–3 hypotheses, held-out validation, log in `research/LOG.md`, never push to main or change live config; output a report + PR). Backlog: `research/BACKLOG.md`.
