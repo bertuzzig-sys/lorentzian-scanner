@@ -1,0 +1,35 @@
+
+=== IS ===
+                                          n  win%   PF  avg%  median%
+         H-C ref: live gates, no spike 1492  56.5 1.47  0.84     0.91
+      H-C: live gates + spike/pullback    0   NaN  NaN   NaN      NaN
+      H-D ref: relaxed gates, no spike 2420  56.1 1.47  0.87     0.85
+   H-D: relaxed gates + spike/pullback    2 100.0  inf  2.81     2.81
+(newly unlocked: spike, fails EMA/RSI)    2 100.0  inf  2.81     2.81
+
+=== OOS ===
+                                         n  win%   PF  avg%  median%
+         H-C ref: live gates, no spike 512  52.0 1.29  0.57     0.26
+      H-C: live gates + spike/pullback   0   NaN  NaN   NaN      NaN
+      H-D ref: relaxed gates, no spike 809  53.0 1.47  0.95     0.43
+   H-D: relaxed gates + spike/pullback   1 100.0  inf  6.53     6.53
+(newly unlocked: spike, fails EMA/RSI)   1 100.0  inf  6.53     6.53
+
+--- H-D (spike) by segment (IS | OOS) ---
+             n  win%  PF  avg%  median%
+   >200B IS  1 100.0 inf  5.28     5.28
+  >200B OOS  0   NaN NaN   NaN      NaN
+ 50-200B IS  1 100.0 inf  0.34     0.34
+50-200B OOS  0   NaN NaN   NaN      NaN
+  10-50B IS  0   NaN NaN   NaN      NaN
+ 10-50B OOS  1 100.0 inf  6.53     6.53
+    <10B IS  0   NaN NaN   NaN      NaN
+   <10B OOS  0   NaN NaN   NaN      NaN
+
+Funnel diagnostic (spike + pullback bars, 501 S&P 500 names, 2022-10..2026-09; before the Lorentzian step):
+bar-days                       498576
+spike+pullback                  14161
++liquidity/price gates           7670
++up>=0.5% day                    1952
++close>weekly VWAP               1396
+-> Lorentzian long flip with vote>=6 on those 1396 bars: 3 signals (0.2%)
