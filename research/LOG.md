@@ -34,3 +34,13 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Verdict: signals do NOT match on 4h. Cause unknown (feed differences, settings not fully known e.g. kernel/trade-with-kernel options, window length). Too imprecise to tune against.
 - Next: exact marker timestamps (TradingView "Export chart data" includes indicator plots) and full indicator settings; then test variants against the exact dates. Do not build the 4h backtest on an unmatched signal.
 - Also observed: 4h TradingView raw rate ~8 long markers per ~10 months on one stock (~0.8/month/stock) before any scanner filters.
+
+## 2026-09-30 — Exploratory: AI Edge port (github.com/artificial-intelligence-edge/lorentzian-classification) + F5 4h, ADX filter
+- Reviewed repo (MIT, created 2026-06-25, 68 stars; pure Python, no network/subprocess calls, no deps). Cloned to scratchpad only, not vendored. Claims parity with TradingView exports; I re-ran its validate-fixtures: 4 fixtures, 0 mismatches (their own baselines, not independently verified as genuine TV exports).
+- It normalises features with a running min/max (Pine-like, causal). advanced_ta (our lib) uses sklearn MinMaxScaler over the whole series.
+- advanced_ta vs TradingView export baselines (single full-series run, default settings, last 1500 bars): long signals on the same bar 26/26 (Coinbase BTC 1d) and 28/29 (BTC 1h); raw prediction numbers identical on only 17-19% of bars. So the math is close on long-flip timing.
+- F5 4h, same settings on both libraries: advanced_ta walk-forward with ADX filter ON (our scanner's setting) gives the same 5 dates as the AI Edge port with ADX filter ON. With ADX filter OFF (TradingView default) the port gives 8 long signals (chart shows 8), 6/8 within 9 bars of the estimated marker dates, 3/8 within 3 bars.
+- Finding: the scanner's ADX filter (ON since v9.3) is the most likely cause of the TradingView mismatch. The chart's Inputs line shows "ADX 20 threshold" but not whether the filter toggle is on. Needs confirmation from the Inputs tab.
+- Caveats: marker dates read from a screenshot (+-3-5 bars); TradingView feed differs (volume 15.79K vs 140K); one stock.
+- Consequence: all backtests (run 001/002) used ADX filter ON. The TV-chart configuration (ADX off) is untested.
+- Follow-up (pre-register first): run 003 = ADX filter on vs off, on daily and on 4h; port gives a causal single pass (no per-bar walk-forward) so 4h runs become cheap.
