@@ -7,7 +7,7 @@ Pick 1–3 items per run. Each needs a written rationale first (see `PROTOCOL.md
 2. **Fix `MIN_MARKET_CAP` and re-test the Minervini gate.** Current config misconfigured
    (PF 1.40 large caps vs 0.90 small caps; IWM benchmark). Gate stays disabled
    (`USE_MINERVINI=false`) until re-tested.
-3. **Re-validate the ~55% win rate post-KNN rewrite.** The figure predates the rewrite.
+3. **[DONE run 001 — see LOG.md; follow-up: parity + flip exit] Re-validate the ~55% win rate post-KNN rewrite.** The figure predates the rewrite.
    Use `walk_forward.py`; report by market-cap segment.
 4. **Test VWAP + volume filter variations.** The filter stack is where the edge appears to be
    (raw Lorentzian ≈ random). Note IEX volume is a ~3% sample.
