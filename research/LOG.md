@@ -87,3 +87,12 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Verdict by the pre-registered rule (OOS median >= +2 pts vs BASE, full CAGR > BASE, OOS DD not worse by > 3 pts): H-B PASSES (+8.1 pts OOS, CAGR 13.6 vs 11.3, OOS DD -6.8 vs -7.2). H-A does NOT (OOS +1.9% vs +6.4%).
 - Caveats: one OOS year; wide seed spread (H-B 10.4..19.4); full-period DD is worse for H-B (-15.5 vs -12.1); full period still trails SPY; survivorship, no costs, flip exit not modelled, backtest window 400 bars vs live ~250 (run 006 tests this).
 - Follow-ups: run 006 (history window) now also evaluates the H-B gate set; out-of-universe check (S&P 400) before any live change.
+
+## 2026-10-01 — Run 006: history-window sensitivity (250 / 400 / 1000 bars), daily
+- Pre-registered: research/runs/2026-10-01_history-window.md (amended before the run to also cover the H-B gate set). Code: research/run006.py.
+- Per-trade OOS (PF / avg%): BASE (EMA+RSI gates ON): 250 -> 1.29 / +0.61; 400 -> 1.22 / +0.45; 1000 -> 1.16 / +0.36. H-B (gates OFF): 250 -> 1.35 / +0.78; 400 -> 1.41 / +0.85; 1000 -> 1.34 / +0.73.
+- Signal overlap between windows: 53-66% (the same stock/day often signals under one window and not another).
+- Portfolio OOS (median of 5 seeds): BASE 250: +9.8% (DD -5.9%, Sharpe 0.91); 400: +5.3% (-8.2%); 1000: +1.9% (-11.2%). H-B 250: +16.9% (DD -6.6%, Sharpe 1.31; range 14.1..24.2); 400: +15.8% (-6.8%); 1000: +9.2% (-11.9%). SPY: +15.3% (DD -8.9%, Sharpe 1.17).
+- Verdict (rule: all windows OOS PF >= 1.2, avg >= +0.2%, avg span <= 0.3 pts): BASE = WINDOW-SENSITIVE (PF 1.16 at 1000 bars). H-B = ROBUST (PF 1.34-1.41, avg +0.73..+0.85, span 0.12).
+- Live-equivalent window is 250 bars: BASE +9.8% OOS (below SPY), H-B +16.9% OOS (slightly above SPY, lower drawdown). One OOS year; no costs; survivorship; flip exit not modelled.
+- Follow-ups: out-of-universe check (S&P 400) and cost model before any live change; decide whether to propose v11.4 = remove the 50-EMA and RSI 40-70 gates.

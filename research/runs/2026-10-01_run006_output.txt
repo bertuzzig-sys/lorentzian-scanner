@@ -1,0 +1,50 @@
+
+######## BASE (EMA+RSI gates ON) ########
+
+=== per-trade, IS ===
+               n  win%   PF  avg%  median%
+ window 250 1555  55.4 1.39  0.73     0.83
+ window 400 1548  56.3 1.45  0.81     0.88
+window 1000 1677  56.2 1.43  0.78     0.82
+
+=== per-trade, OOS ===
+              n  win%   PF  avg%  median%
+ window 250 508  51.2 1.29  0.61     0.16
+ window 400 533  51.2 1.22  0.45     0.16
+window 1000 575  49.2 1.16  0.36    -0.08
+
+=== overlap of signals between windows (share of union that is in both) ===
+  250 vs 400: 1482/2662 = 56%
+  250 vs 1000: 1541/2774 = 56%
+  400 vs 1000: 1725/2608 = 66%
+
+=== portfolio OOS 2025-10-01 -> 2026-09-30 (5 seeds) ===
+  window 250: signals 512 | total% median 9.8 (min 8.1, max 10.5) | maxDD% -5.9 | Sharpe 0.91
+  window 400: signals 537 | total% median 5.3 (min 2.9, max 7.9) | maxDD% -8.2 | Sharpe 0.55
+  window 1000: signals 579 | total% median 1.9 (min -0.6, max 3.2) | maxDD% -11.2 | Sharpe 0.22
+  SPY buy&hold: {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+
+######## H-B (EMA+RSI gates OFF) ########
+
+=== per-trade, IS ===
+               n  win%   PF  avg%  median%
+ window 250 2581  55.6 1.42  0.77     0.83
+ window 400 2520  56.0 1.45  0.84     0.84
+window 1000 2683  56.1 1.44  0.82     0.77
+
+=== per-trade, OOS ===
+              n  win%   PF  avg%  median%
+ window 250 847  51.6 1.35  0.78     0.20
+ window 400 840  52.9 1.41  0.85     0.34
+window 1000 912  52.2 1.34  0.73     0.28
+
+=== overlap of signals between windows (share of union that is in both) ===
+  250 vs 400: 2354/4434 = 53%
+  250 vs 1000: 2442/4581 = 53%
+  400 vs 1000: 2742/4213 = 65%
+
+=== portfolio OOS 2025-10-01 -> 2026-09-30 (5 seeds) ===
+  window 250: signals 851 | total% median 16.9 (min 14.1, max 24.2) | maxDD% -6.6 | Sharpe 1.31
+  window 400: signals 844 | total% median 15.8 (min 11.4, max 19.2) | maxDD% -6.8 | Sharpe 1.29
+  window 1000: signals 916 | total% median 9.2 (min 5.3, max 13.0) | maxDD% -11.9 | Sharpe 0.74
+  SPY buy&hold: {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
