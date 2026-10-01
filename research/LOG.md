@@ -69,3 +69,9 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Settings: source close; neighbors 8; max bars back 2000; features RSI 9/1, WT 10/11, CCI 20/1, ADX 20/2, RSI 9/1; volatility filter ON; regime filter ON, threshold -0.1; ADX filter OFF (threshold 20); EMA filter OFF; SMA filter OFF; Trade with Kernel ON; kernel smoothing OFF (lookback 8, weight 8, level 25, lag 2); dynamic exits OFF.
 - Differences vs live scanner (daily, advanced_ta): ADX filter ON vs OFF; regime threshold 0.0 vs -0.1; first feature RSI 14 vs RSI 9.
 - The earlier CLH 4h comparison ("ADX filter OFF (TV default)", RSI 9 first feature, regime -0.1, kernel filter ON) already used exactly these settings: 9 Python signals vs 12 chart labels, 5/12 within ~1 day. So the remaining mismatch is not the settings; the likely cause is the data feed (BATS bars vs consolidated yfinance bars), which cannot be fixed with yfinance or Alpaca IEX.
+
+## 2026-10-01 — Exploratory: live signal vs history length; data source correction
+- Correction: the live scanner downloads yfinance daily bars (365 calendar days); only CLAUDE.md mentioned Alpaca. Earlier statements that live uses the thin Alpaca IEX feed were wrong. Backtest and live share the data source.
+- Replay of the 10 logged live signals (17-29 Sep) with the live 365-day window: 8/10 reproduce as fresh long flips (FFIV, A, P, DXCM, MAR, TT, CCL, ZBRA); MMM and BIIB do not.
+- Same stocks/dates with 500 or 800 calendar days of history: A and P no longer flip long, FFIV vote 8 -> 4 -> 2. The signal is sensitive to history length.
+- Backtest windows (run 001-005) use 400 bars (~1.6y) per signal; live uses ~250 bars. This is a backtest-vs-live gap; to be tested (windows 250 / 400 / 1000) as a pre-registered run.
