@@ -1,0 +1,21 @@
+
+=== BASE gates (EMA+RSI on): per-trade, gross ===
+                 who period     n  win%   PF  avg%  median%
+NULL (no Lorentzian)     IS 51518  53.8 1.30  0.58     0.48
+NULL (no Lorentzian)    OOS 17397  50.3 1.17  0.41     0.05
+          LORENTZIAN     IS  1553  55.4 1.38  0.72     0.83
+          LORENTZIAN    OOS   508  51.2 1.29  0.61     0.16
+
+=== H-B gates (EMA+RSI off): per-trade, gross ===
+                 who period     n  win%   PF  avg%  median%
+NULL (no Lorentzian)     IS 95584  54.6 1.35  0.68     0.57
+NULL (no Lorentzian)    OOS 33034  49.7 1.15  0.37    -0.04
+          LORENTZIAN     IS  2579  55.7 1.41  0.77     0.83
+          LORENTZIAN    OOS   847  51.6 1.35  0.78     0.20
+
+=== portfolio OOS 2025-10-01 -> 2026-09-30, gross, 5 seeds ===
+  BASE gates NULL       signals  17492 | total% med   20.7 [12.7..25.3] | maxDD -8.7 | Sharpe 1.21
+  BASE gates LORENTZIAN signals    512 | total% med    9.8 [8.1..10.5] | maxDD -5.9 | Sharpe 0.91
+  H-B gates  NULL       signals  33205 | total% med   20.1 [13.1..30.9] | maxDD -6.2 | Sharpe 1.47
+  H-B gates  LORENTZIAN signals    851 | total% med   16.9 [14.1..24.2] | maxDD -6.6 | Sharpe 1.31
+  SPY buy&hold: {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}

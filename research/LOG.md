@@ -108,3 +108,12 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
   H-D (survives costs: OOS avg >= +0.2% and PF >= 1.2 on BOTH universes) NOT SUPPORTED by the strict rule: S&P 500 passes (PF 1.25), S&P 400 PF 1.19 (< 1.2), avg +0.50% passes.
 - Reading: removing the EMA/RSI gates is the better variant in both universes, but after costs neither universe beats buy-and-hold over the full period; per-trade edge (~0.5%) is of the same order as costs (0.2-0.3% round trip at base, 0.5% at stress). OOS year: S&P 500 H-B net +11.8% vs SPY +15.3%.
 - Caveats: cost level is an assumption (large caps with a good broker may be nearer 0.02-0.05% per side); one OOS year; survivorship; flip exit not modelled.
+
+## 2026-10-01 — Run 008: null baseline (entries passing the same gates without the Lorentzian), S&P 500, gross
+- Pre-registered: research/runs/2026-10-01_null-baseline.md (committed before the run). Code: research/run008.py. Lorentzian trades = run 007 S&P 500, 250-bar window.
+- Per-trade (avg % IS / OOS): BASE gates: NULL +0.58 / +0.41 (n 51518 / 17397) vs LORENTZIAN +0.72 / +0.61 (n 1553 / 508). H-B gates: NULL +0.68 / +0.37 (n 95584 / 33034) vs LORENTZIAN +0.77 / +0.78 (n 2579 / 847).
+  Differences (Lorentzian - null): BASE gates IS +0.14, OOS +0.20; H-B gates IS +0.09, OOS +0.41. Win % OOS: null 50.3 / 49.7 vs Lorentzian 51.2 / 51.6; PF OOS null 1.17 / 1.15 vs Lorentzian 1.29 / 1.35.
+- Verdict (rule: OOS diff >= 0.2 pts AND same sign in IS): technically ADDS VALUE for both gate sets (BASE gates borderline: OOS diff exactly +0.20), but the effect is small; the in-sample differences are only +0.09..+0.14 pts.
+- Portfolio OOS gross (random null picks, 20 slots, 5 seeds): NULL BASE gates +20.7% [12.7..25.3], NULL H-B gates +20.1% [13.1..30.9] vs LORENTZIAN +9.8% / +16.9% and SPY +15.3%. The null portfolio keeps the 20 slots full (near 100% invested) while the Lorentzian produces too few signals (14-16 slots used), so this comparison is dominated by exposure to a rising market; per-trade stats are the like-for-like comparison.
+- Reading: most of the per-trade return (+0.4..+0.6%) comes from the filters plus market drift; the Lorentzian adds a small extra (+0.1..+0.4 pts per trade). Costs per trade (0.2-0.3% round trip) are of the same size as that extra.
+- Caveats: gross, survivorship, one OOS year, flip exit not modelled, null portfolio spread is wide (12.7..30.9%).
