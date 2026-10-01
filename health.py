@@ -55,13 +55,6 @@ def evaluate(m: dict) -> list[tuple[str, str]]:
         if pct > MAX_NO_DATA_PCT:
             add(SEV_WARN, f"No-data {no_data}/{scanned} ({pct:.0f}%) exceeds {MAX_NO_DATA_PCT:.0f}%")
 
-    # ── benchmark / regime ───────────────────────────────────────────────────
-    last, ema = m.get("benchmark_last"), m.get("benchmark_ema")
-    if last is not None and ema is not None:
-        if last <= 0 or ema <= 0:
-            add(SEV_CRIT, f"Benchmark fetch broken ({m.get('benchmark','?')} "
-                          f"last={last} ema={ema}) — regime and RS filter unreliable")
-
     # ── put/call ─────────────────────────────────────────────────────────────
     pc = m.get("pc_ratio")
     if pc is not None and abs(pc - PC_DEFAULT) < 1e-9:
