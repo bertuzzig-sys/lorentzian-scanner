@@ -1,0 +1,36 @@
+rows 91205 | SIG+VE 3420 | SIG-only 19856 | VE-only 10966 | ALL 69060
+
+-- per trade, gross --
+                 n  win%   PF  avg%  median%
+   SIG+VE IS  2708  53.2 1.49  1.59     0.64
+  SIG+VE OOS   712  49.7 1.19  0.70    -0.12
+ SIG-only IS 14837  54.3 1.43  1.33     0.96
+SIG-only OOS  5019  53.3 1.56  1.87     0.85
+  VE-only IS  8601  52.6 1.44  1.38     0.61
+ VE-only OOS  2365  48.0 1.15  0.60    -0.64
+      ALL IS 52278  52.4 1.36  1.14     0.53
+     ALL OOS 16782  50.5 1.32  1.14     0.13
+
+-- per trade, net 0.15%/side --
+                 n  win%   PF  avg%  median%
+   SIG+VE IS  2708  52.0 1.38  1.28     0.33
+  SIG+VE OOS   712  48.2 1.10  0.40    -0.42
+ SIG-only IS 14837  52.8 1.32  1.02     0.66
+SIG-only OOS  5019  52.2 1.45  1.56     0.55
+  VE-only IS  8601  51.2 1.33  1.08     0.31
+ VE-only OOS  2365  46.5 1.07  0.30    -0.94
+      ALL IS 52278  51.0 1.25  0.84     0.22
+     ALL OOS 16782  49.3 1.22  0.83    -0.17
+
+-- info: SIG+VE split (net) --
+                      n  win%   PF  avg%  median%
+ SIG+VE / crash IS  129  55.0 1.53  2.12     0.91
+SIG+VE / crash OOS   31  38.7 1.09  0.48    -5.31
+ SIG+VE / quiet IS  473  48.2 0.99 -0.05    -0.30
+SIG+VE / quiet OOS  151  48.3 0.83 -0.61    -0.23
+ SIG+VE / other IS 2106  52.6 1.47  1.53     0.46
+SIG+VE / other OOS  530  48.7 1.18  0.68    -0.30
+portfolio SIG+VE                   OOS: signals   717 | total% med    9.0 [3.7..20.3] | maxDD -8.7 | Sharpe 0.72 || SPY total% 16.8, Sharpe 1.3
+portfolio SIG+VE                   FULL: signals  3420 | total% med   32.3 [23.8..38.5] | maxDD -19.5 | Sharpe 0.56 || SPY total% 123.6, Sharpe 1.34
+portfolio all Lorentzian signals   OOS: signals  5750 | total% med    7.4 [-7.4..16.0] | maxDD -11.1 | Sharpe 0.5 || SPY total% 16.8, Sharpe 1.3
+portfolio all Lorentzian signals   FULL: signals 23276 | total% med   35.0 [21.4..72.3] | maxDD -24.5 | Sharpe 0.55 || SPY total% 123.6, Sharpe 1.34

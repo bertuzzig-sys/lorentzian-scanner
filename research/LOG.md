@@ -133,3 +133,12 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Verdict: EDGE rule met on paper (OOS n 231, avg +2.65%, PF 1.58). Trigger adds value: NOT supported (OOS +0.94 vs null, but IS -0.21: opposite signs). The crash-and-rebound STATE itself averages +1.7..+2.7% per 20-day trade; the Lorentzian trigger is not what produces it.
 - Caveat (large): survivorship. Crashed stocks that kept falling are gone from today's index lists, so rebounds after crashes are overstated; the null shares the bias, so absolute numbers are not credible, and the trigger-vs-null comparison is the usable one.
 - Screen on the last complete bar (2026-09-30), descriptive only: fresh Lorentzian long inside the state: STAA (long 2026-09-29, $22.61, 19% off the low, -22% vs pre-crash). In the state without a fresh signal (watchlist): PLAB, ON, DKS, FN, DAN, ESI, VCYT, AMKR, CBOE, VIAV, BE, BURL.
+
+## 2026-10-01 — Run 012: unusual volume + Lorentzian long (common thread of TTAN and GRAIL), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_volume-expansion.md (committed before the run). Code: research/run012.py. Exit 10% stop / 20-day hold, cost 0.15%/side, TradingView settings, causal AI Edge port.
+- Per trade, net (avg % IS / OOS; n OOS): SIG+VE +1.28 / +0.40 (712); SIG-only +1.02 / +1.56 (5019); VE-only +1.08 / +0.30 (2365); ALL random liquid days +0.84 / +0.83 (16782).
+- SIG+VE split, net OOS: after a crash +0.48 (n 31); quiet base -0.61 (n 151, IS -0.05); other +0.68 (n 530).
+- Portfolio (20 slots, 5 seeds): SIG+VE OOS +9.0% [3.7..20.3], maxDD -8.7%, full period +32.3% (Sharpe 0.56); all Lorentzian signals OOS +7.4%, full +35.0%; SPY OOS +16.8%, full +123.6% (Sharpe 1.34).
+- Verdicts: H1 (volume adds to the signal) NOT SUPPORTED: OOS -1.16 vs SIG-only, IS +0.26 (opposite signs). H2 (signal adds to volume) NOT SUPPORTED: +0.10 OOS. H3 (beats SPY) NOT SUPPORTED: OOS +9.0% < +16.8%, full Sharpe 0.56 < 1.34.
+- Reading: signals during volume expansion did WORSE than signals without it in the last year; the GRAIL-style quiet base with a Lorentzian long lost money (-0.61% per trade OOS). The Lorentzian signal alone on the S&P 1500 beat random days (+1.56 vs +0.83 OOS, +1.02 vs +0.84 IS), a small edge, but not versus SPY as a portfolio.
+- Caveats: survivorship (today's index lists), one OOS year, daily bars, no live flip exit.
