@@ -1,5 +1,5 @@
 """
-Lorentzian Scanner B — v11.2 (P/C overlay removed from vote decision)
+Lorentzian Scanner B — v11.3 (IWM regime/RS gate and weekly-VWAP gate removed)
 ===========================
 Changes from v11.0 — these are the ONLY settings with out-of-sample evidence:
 - STOP_LOSS_PCT 0.04 -> 0.08
@@ -57,13 +57,10 @@ for _noisy in ("httpx", "httpcore"):
 
 MIN_DOLLAR_VOLUME  = 5_000_000  # $5M/day — filters illiquid stocks regardless of share price
 MIN_PRICE          = 5.0
-BULL_MIN_VOTE      = 6        # SPY above 21-EMA (bull regime)
-BEAR_MIN_VOTE      = 8        # SPY below 21-EMA (bear regime) — raise bar
-SPY_EMA_PERIOD     = 21       # candles for benchmark regime EMA
-# v11.0: regime/RS benchmark now matches the universe (MidCap400 + Russell2000).
-# SPY is cap-weighted and mega-cap-tech dominated, so it printed BEAR while our
-# small/mid-cap universe was rallying. IWM = Russell 2000 ETF.
-BENCHMARK_TICKER   = os.getenv("BENCHMARK_TICKER", "IWM")
+# v11.3: fixed vote threshold. The IWM regime rule (6 bull / 8 bear), the IWM relative-strength
+# gate and the weekly-VWAP gate were removed: research runs 001 and 003 (daily, S&P 500, held-out
+# year) showed no measurable difference in per-trade quality with or without them.
+MIN_VOTE           = 6
 
 # Rotation snapshot (informational only — never gates a signal)
 SIZE_ETFS   = {"SPY": "LargeCap", "IJH": "MidCap", "IWM": "SmallCap", "QQQ": "Nasdaq100"}
@@ -142,8 +139,6 @@ PC_GREED = 0.70   # below = everyone is bullish → be defensive
 PC_FEAR  = 1.00   # above = panic → be aggressive (buy)
 
 # Derived at runtime — set in run_scan() after SPY + P/C checks
-MIN_VOTE   = BULL_MIN_VOTE
-SPY_REGIME = "BULL"    # updated each run
 PC_RATIO   = 0.85      # updated each run
 PC_REGIME  = "NEUTRAL" # GREED / NEUTRAL / FEAR
 
@@ -166,39 +161,6 @@ _LC_FILTERS = LorentzianClassification.FilterSettings(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def get_spy_regime(all_bars: dict) -> tuple[str, float, float]:
-    """
-    Return (regime, spy_1d_return, spy_ema) where regime is 'BULL' or 'BEAR'.
-    Downloads SPY if not already in all_bars.
-    """
-    df = all_bars.get(BENCHMARK_TICKER)
-    if df is None:
-        try:
-            raw = yf.download(BENCHMARK_TICKER, period="60d", interval="1d",
-                              auto_adjust=True, progress=False, threads=False)
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)   # ('Close','SPY') -> 'Close'
-            raw.columns = [str(c).lower() for c in raw.columns]
-            if isinstance(raw.index, pd.DatetimeIndex) and raw.index.tz is not None:
-                raw.index = raw.index.tz_localize(None)
-            df = raw.dropna(subset=["close"])
-            if df is None or df.empty:
-                log.warning("%s fetch returned empty — regime defaulting to BULL", BENCHMARK_TICKER)
-                return "BULL", 0.0, 0.0
-            all_bars[BENCHMARK_TICKER] = df
-        except Exception as exc:
-            log.warning("Could not fetch %s for regime check: %s", BENCHMARK_TICKER, exc)
-            return "BULL", 0.0, 0.0
-
-    closes = df["close"]
-    ema = float(closes.ewm(span=SPY_EMA_PERIOD, adjust=False).mean().iloc[-1])
-    last = float(closes.iloc[-1])
-    prev = float(closes.iloc[-2]) if len(closes) >= 2 else last
-    spy_1d = (last - prev) / prev
-    regime = "BULL" if last > ema else "BEAR"
-    return regime, spy_1d, ema
-
 
 def has_near_earnings(ticker: str, trading_days: int = EARNINGS_SKIP_DAYS) -> bool:
     """
@@ -618,18 +580,6 @@ def _clean_df(raw, sym):
     return df if len(df) >= 100 else None
 
 
-def weekly_vwap(df):
-    df = df.copy()
-    df["_week"] = df.index.to_series().dt.to_period("W-FRI").dt.start_time
-    tp      = (df["high"] + df["low"] + df["close"]) / 3
-    pv      = tp * df["volume"]
-    cum_pv  = pv.groupby(df["_week"]).cumsum()
-    cum_vol = df["volume"].groupby(df["_week"]).cumsum()
-    vwap    = cum_pv / cum_vol.replace(0, np.nan)
-    vwap.index = df.index
-    return vwap
-
-
 def _run_lc(df):
     """Run LorentzianClassification; return (last_row, vote_int, signal_int)."""
     lc   = LorentzianClassification(df, features=_LC_FEATURES, filterSettings=_LC_FILTERS)
@@ -662,7 +612,7 @@ def _size_label(vote: int) -> str:
     return "🔥 LARGE (half size)" if vote >= 8 else "📊 STANDARD (half size)"
 
 
-def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
+def scan_stock(ticker, df, counters):
     try:
         last_price = float(df["close"].iloc[-1])
         if last_price < MIN_PRICE:
@@ -692,12 +642,8 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
                 counters["low_volume"] += 1
                 return None
 
-        # ── Relative strength: must beat the benchmark 1-day return ─────────
         prev_close  = float(df["close"].iloc[-2]) if len(df) >= 2 else last_price
         stock_1d    = (last_price - prev_close) / prev_close if prev_close else 0
-        if stock_1d <= spy_1d_return:
-            counters["rs_fail"] += 1
-            return None
 
         # ── Entry day momentum: stock must be up ≥ 0.5% (no flat/red entries) ─
         if stock_1d < MIN_ENTRY_MOMENTUM:
@@ -740,30 +686,22 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
                 counters["rsi_gate"] = counters.get("rsi_gate", 0) + 1
                 return None
 
-        vwap_series = weekly_vwap(df)
-        last_vwap   = float(vwap_series.iloc[-1])
-        if np.isnan(last_vwap):
-            counters["no_data"] += 1
-            return None
-
         counters["passed"] += 1
         last, vote, signal = _run_lc(df)
 
         if bool(last.get("isEarlySignalFlip", False)):
             counters["early_flip"] += 1
 
-        # Fresh BUY only: Lorentzian just flipped long, price above weekly VWAP, vote strong
-        if not pd.isna(last["startLongTrade"]) and last_price > last_vwap and vote >= MIN_VOTE:
+        # Fresh BUY only: Lorentzian just flipped long, vote strong
+        if not pd.isna(last["startLongTrade"]) and vote >= MIN_VOTE:
             stop_price = round(last_price * (1 - STOP_LOSS_PCT), 2)
             return {
                 "type": "BUY", "ticker": ticker,
-                "price": round(last_price, 2), "vwap": round(last_vwap, 2),
+                "price": round(last_price, 2), "vwap": 0.0,   # VWAP gate removed; column kept for the Sheet schema
                 "vote": vote, "stop": stop_price, "size": _size_label(vote),
             }
 
         # Re-entries removed in v9.0 — fresh flips only
-        if not pd.isna(last["startLongTrade"]) and vote >= MIN_VOTE:
-            counters["vwap_rejected"] += 1
 
         return None
     except Exception as exc:
@@ -775,7 +713,7 @@ def scan_stock(ticker, df, counters, spy_1d_return: float = 0.0):
 # ── Main scan ─────────────────────────────────────────────────────────────────
 
 def run_scan():
-    global MIN_VOTE, SPY_REGIME, PC_RATIO, PC_REGIME
+    global PC_RATIO, PC_REGIME
     global MCAP_PREFILTERED
 
     # Skip weekends — markets are closed
@@ -785,7 +723,7 @@ def run_scan():
 
     scan_started = time.time()
     scan_date = date.today().isoformat()
-    log.info("=== Lorentzian v11.2 scan — %s ===", scan_date)
+    log.info("=== Lorentzian v11.3 scan — %s ===", scan_date)
 
     # ── 1. Load open positions from Sheets ───────────────────────────────────
     open_positions, ws = sheets_logger.get_open_positions()
@@ -830,10 +768,7 @@ def run_scan():
                         "on rs_unavailable rather than pass silently", exc)
             _RS_RANKS = {}
 
-    # ── 4. Market regime (SPY 21-EMA + Put/Call ratio) ───────────────────────
-    SPY_REGIME, spy_1d_return, spy_ema = get_spy_regime(all_bars)
-    spy_df   = all_bars.get(BENCHMARK_TICKER)
-    spy_last = float(spy_df["close"].iloc[-1]) if spy_df is not None else 0
+    # ── 4. Put/Call ratio (context only) ─────────────────────────────────────
 
     # v11.2: P/C OVERLAY REMOVED from the vote decision.
     # It was never part of any backtest — bench_context() in walk_forward.py maps
@@ -841,15 +776,13 @@ def run_scan():
     # vote 6 in BULL. The overlay silently returned the 0.85 fallback for weeks
     # (dead), then started working and read 0.69 -> GREED -> forced MIN_VOTE=8
     # even when the benchmark said BULL. That is unvalidated config drift
-    # throttling signals. Vote now depends ONLY on the benchmark regime, exactly
-    # as validated. P/C is still fetched and displayed as CONTEXT only.
+    # throttling signals. v11.3: the vote threshold is a fixed MIN_VOTE (no regime rule).
+    # P/C is still fetched and displayed as CONTEXT only.
     PC_RATIO  = get_put_call_ratio()
     PC_REGIME = ("GREED" if PC_RATIO < PC_GREED
                  else "FEAR" if PC_RATIO > PC_FEAR else "NEUTRAL")
-    MIN_VOTE  = BULL_MIN_VOTE if SPY_REGIME == "BULL" else BEAR_MIN_VOTE
 
     pc_icon = {"GREED": "🟡 GREED", "NEUTRAL": "⚪ NEUTRAL", "FEAR": "🟢 FEAR"}[PC_REGIME]
-    log.info("%s regime: %s (close=%.2f ema=%.2f)", BENCHMARK_TICKER, SPY_REGIME, spy_last, spy_ema)
     log.info("P/C ratio: %.2f → %s | Final MIN_VOTE=%d", PC_RATIO, PC_REGIME, MIN_VOTE)
 
     # Pre-load sectors for open positions (to enforce sector cap on new signals)
@@ -868,19 +801,17 @@ def run_scan():
         log.info("Rotation:\n%s", rotation_text)
 
     send_alert(
-        f"🔍 <b>Lorentzian Scanner V11.0 [LC+VWAP]</b>"
+        f"🔍 <b>Lorentzian Scanner v11.3 [LC]</b>"
         + ("  🧪 <b>DRY RUN</b>\n" if MANUAL_DRY_RUN else "\n")
         +
         f"Data: <b>yfinance</b> | Daily | consolidated tape\n"
         f"<i>Universe: {universe_src}</i>\n"
         f"<i>Algorithm: advanced-ta · FRESH BUY signals only</i>\n"
-        f"<i>{BENCHMARK_TICKER} regime: {'🟢 BULL' if SPY_REGIME == 'BULL' else '🔴 BEAR'} "
-        f"(${spy_last:.2f} vs EMA ${spy_ema:.2f})</i>\n"
         f"<i>P/C Ratio: {PC_RATIO:.2f} → {pc_icon} (context only)</i>\n"
         f"<i>Pre-market: {premarket_snapshot}</i>\n"
         f"{rotation_block}"
         f"<i>Final Vote threshold: ≥ {MIN_VOTE}</i>\n"
-        f"<i>Filters: VWAP + Volume + RS + Momentum + Earnings + Sector cap"
+        f"<i>Filters: Volume + Momentum + 50-EMA + RSI + Earnings + Sector cap"
         f"{' + Minervini (RS≥' + str(int(MINERVINI_MIN_RS)) + ')' if USE_MINERVINI else ''}</i>\n"
         f"<i>Risk: Stop −{int(STOP_LOSS_PCT*100)}% · Max {MAX_OPEN_POSITIONS} positions · "
         f"Hold {MAX_HOLD_DAYS}d (review {EXIT_DAYS}d) · half size</i>\n"
@@ -891,8 +822,8 @@ def run_scan():
     workers  = int(os.getenv("SCAN_WORKERS", "8"))
     counters = {
         "no_data": no_data_count, "price": 0, "volume": 0,
-        "low_volume": 0, "rs_fail": 0, "momentum_fail": 0,
-        "passed": 0, "vwap_rejected": 0, "early_flip": 0,
+        "low_volume": 0, "momentum_fail": 0,
+        "passed": 0, "early_flip": 0,
         "earnings_skip": 0, "dedup_skip": 0, "sector_skip": 0, "cap_skip": 0,
         "minervini_fail": 0,
     }
@@ -901,7 +832,7 @@ def run_scan():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(scan_stock, sym, df, counters, spy_1d_return): sym
+            pool.submit(scan_stock, sym, df, counters): sym
             for sym, df in all_bars.items() if sym in universe_set
         }
         done = 0
@@ -1020,7 +951,6 @@ def run_scan():
         "canary_missing": [t for t in CANARY_TICKERS if t not in set(raw_tickers)],
         "scanned": len(tickers), "no_data": counters["no_data"],
         "passed": counters["passed"],
-        "benchmark": BENCHMARK_TICKER, "benchmark_last": spy_last, "benchmark_ema": spy_ema,
         "pc_ratio": PC_RATIO, "open_positions": len(open_tickers),
         "max_positions": MAX_OPEN_POSITIONS,
         "scan_seconds": time.time() - scan_started,
@@ -1029,7 +959,7 @@ def run_scan():
     health_issues = health.evaluate(health_metrics)
 
     send_alert(
-        f"📊 <b>[LC+VWAP v11.0] Filter breakdown</b>\n"
+        f"📊 <b>[LC v11.3] Filter breakdown</b>\n"
         f"Total universe: {len(raw_tickers)}\n"
         f"🚫 Excluded: {excluded_count}\n"
         f"📥 Scanned: {len(tickers)}\n"
@@ -1039,7 +969,6 @@ def run_scan():
         f"❌ Mega cap &gt;{MAX_MARKET_CAP/1e9:.0f}B: {counters.get('mcap_mega', 0)}\n"
         f"❌ Dollar vol &lt;$5M: {counters['volume']}\n"
         f"❌ Low vol (20d avg): {counters['low_volume']}\n"
-        f"❌ RS vs {BENCHMARK_TICKER}: {counters['rs_fail']}\n"
         f"❌ Momentum &lt;0.5%: {counters['momentum_fail']}\n"
         f"❌ Below 50-EMA: {counters.get('ema50_fail', 0)}\n"
         f"❌ RSI outside 40-70: {counters.get('rsi_gate', 0)}\n"
@@ -1049,15 +978,13 @@ def run_scan():
         f"❌ Sector cap: {counters['sector_skip']}\n"
         f"✅ Passed all filters: {counters['passed']}\n"
         f"ℹ️ Early flip (stat): {counters['early_flip']}\n"
-        f"🟡 VWAP rejected: {counters['vwap_rejected']}\n"
         f"📋 Open positions: {len(open_tickers)} / {MAX_OPEN_POSITIONS}"
         f"\n{health.summary_line(health_issues)}"
     )
 
     # Main signals message
-    spy_icon = "🟢 BULL" if SPY_REGIME == "BULL" else "🔴 BEAR"
-    msg = (f"🎯 <b>[LC+VWAP v11.0] SIGNALS</b>\n"
-           f"{BENCHMARK_TICKER}: {spy_icon} | P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
+    msg = (f"🎯 <b>[LC v11.3] SIGNALS</b>\n"
+           f"P/C: {PC_RATIO:.2f} ({pc_icon}) | Vote >= {MIN_VOTE}\n\n")
 
     # — Exit section —
     if hard_exits:
@@ -1096,7 +1023,7 @@ def run_scan():
             pm   = get_premarket_gap(s["ticker"], s["price"])
             sec  = sector_rotation_tag(get_sector(s["ticker"]))
             msg += (f'<a href="{tv}"><b>{s["ticker"]}</b></a> '
-                    f'${s["price"]} | vwap ${s["vwap"]} | vote {s["vote"]:+d} | '
+                    f'${s["price"]} | vote {s["vote"]:+d} | '
                     f'{s["size"]} | stop ${s["stop"]}{pm}{sec}\n')
         msg += "\n"
 
@@ -1137,7 +1064,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner v11.2 starting...")
+    log.info("Lorentzian Scanner v11.3 starting...")
     universe_selftest()
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
