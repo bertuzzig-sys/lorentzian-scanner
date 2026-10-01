@@ -688,3 +688,24 @@ plot(startLongTrade ? 1 : na, "Buy", display=display.data_window)
 plot(startShortTrade ? 1 : na, "Sell", display=display.data_window)
 plot(endLongTrade and settings.showExits ? 1 : na, "StopBuy", display=display.data_window)
 plot(endShortTrade and settings.showExits ? 1 : na, "StopSell", display=display.data_window)
+
+// ===== Signal table (works on FREE TradingView plans; no export needed) =====
+// Lists the exact date/time (New York time, bar OPEN) and prediction of the last 15 long and 15 short signals.
+// Take a screenshot of the chart to share them.
+var array<string> xp_longs  = array.new_string()
+var array<string> xp_shorts = array.new_string()
+if startLongTrade
+    array.unshift(xp_longs, str.format_time(time, "yyyy-MM-dd HH:mm", "America/New_York") + "  p=" + str.tostring(prediction, "#"))
+    if array.size(xp_longs) > 15
+        array.pop(xp_longs)
+if startShortTrade
+    array.unshift(xp_shorts, str.format_time(time, "yyyy-MM-dd HH:mm", "America/New_York") + "  p=" + str.tostring(prediction, "#"))
+    if array.size(xp_shorts) > 15
+        array.pop(xp_shorts)
+var table xp_tbl = table.new(position.bottom_left, 2, 17, bgcolor = color.new(color.black, 25), border_width = 1)
+if barstate.islast
+    table.cell(xp_tbl, 0, 0, "LONG (newest first)", text_color = color.white, text_size = size.small)
+    table.cell(xp_tbl, 1, 0, "SHORT (newest first)", text_color = color.white, text_size = size.small)
+    for i = 0 to 14
+        table.cell(xp_tbl, 0, i + 1, i < array.size(xp_longs) ? array.get(xp_longs, i) : "", text_color = color.lime, text_size = size.small, text_halign = text.align_left)
+        table.cell(xp_tbl, 1, i + 1, i < array.size(xp_shorts) ? array.get(xp_shorts, i) : "", text_color = color.red, text_size = size.small, text_halign = text.align_left)
