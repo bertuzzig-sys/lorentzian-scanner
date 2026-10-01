@@ -62,3 +62,10 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Per-trade (all signals, no limits): n 2086, win 55.1%, PF 1.38, avg +0.72%.
 - Verdict: positive per-trade edge, but as a portfolio it did NOT beat SPY buy-and-hold in this (bullish) sample; lower drawdown, lower Sharpe. Numbers are optimistic (survivorship, no costs, no flip exit).
 - Follow-ups: pre-register portfolio-level tests (ADX off / relaxed EMA-RSI gates fill more slots); model the flip exit; compare against SPY always.
+
+## 2026-10-01 — Exact TradingView settings read from the chart (CLH 4h, Gianluca's layout)
+- Method: read the indicator's input values through the TradingView page (read-only; no data export, no changes to the layout).
+- Chart symbol is BATS:CLH (Cboe BATS feed, free plan), not the consolidated tape.
+- Settings: source close; neighbors 8; max bars back 2000; features RSI 9/1, WT 10/11, CCI 20/1, ADX 20/2, RSI 9/1; volatility filter ON; regime filter ON, threshold -0.1; ADX filter OFF (threshold 20); EMA filter OFF; SMA filter OFF; Trade with Kernel ON; kernel smoothing OFF (lookback 8, weight 8, level 25, lag 2); dynamic exits OFF.
+- Differences vs live scanner (daily, advanced_ta): ADX filter ON vs OFF; regime threshold 0.0 vs -0.1; first feature RSI 14 vs RSI 9.
+- The earlier CLH 4h comparison ("ADX filter OFF (TV default)", RSI 9 first feature, regime -0.1, kernel filter ON) already used exactly these settings: 9 Python signals vs 12 chart labels, 5/12 within ~1 day. So the remaining mismatch is not the settings; the likely cause is the data feed (BATS bars vs consolidated yfinance bars), which cannot be fixed with yfinance or Alpaca IEX.
