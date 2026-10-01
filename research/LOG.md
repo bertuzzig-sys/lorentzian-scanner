@@ -44,3 +44,13 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Caveats: marker dates read from a screenshot (+-3-5 bars); TradingView feed differs (volume 15.79K vs 140K); one stock.
 - Consequence: all backtests (run 001/002) used ADX filter ON. The TV-chart configuration (ADX off) is untested.
 - Follow-up (pre-register first): run 003 = ADX filter on vs off, on daily and on 4h; port gives a causal single pass (no per-bar walk-forward) so 4h runs become cheap.
+
+## 2026-10-01 — Run 003: ADX filter on/off and VWAP gate on/off (daily)
+- Hypotheses: H-1 ADX filter OFF vs ON; H-2 VWAP gate OFF vs ON. Pre-registered: research/runs/2026-10-01_adx-and-vwap.md. Code: research/run003.py. Same data/split/exits as run 001, no IWM, MIN_VOTE 6.
+- Result (IS / OOS):
+  - BASELINE (ADX on, VWAP on): n 1491 / 512 · WR 56.6 / 51.6 · PF 1.47 / 1.27 · avg +0.85 / +0.54
+  - H-1 ADX off:                n 3375 / 1132 · WR 54.5 / 51.9 · PF 1.33 / 1.32 · avg +0.64 / +0.69
+  - H-2 VWAP off:               n 1549 / 532  · WR 56.4 / 51.3 · PF 1.45 / 1.22 · avg +0.81 / +0.46
+- Verdict (rule: OOS avg differs >= 0.2% AND same sign in IS): H-1 no measurable quality difference (IS -0.21, OOS +0.15, opposite signs) BUT ADX off produces ~2.2x as many signals. H-2 no measurable difference; the VWAP gate removes only ~4% of otherwise-passing signals (it is almost redundant with the other gates).
+- Correction to the 2026-09-30 entry: ADX on/off is not the main cause of the TradingView mismatch. On CLH 4h (axis-calibrated dates) ADX off/on gave 9/8 signals; 5 of 12 chart labels reproduced within ~1 day either way. TradingView's 4h bars come from a thin feed (CLH 29 Sep 13:30 bar: TV O313.40 H313.40 L309.71 C310.76 vol 5.07K vs consolidated O310.80 H312.65 L309.68 C311.58 vol 131K), which likely explains part of the mismatch. Needs TradingView's own OHLC export to settle.
+- Caveats: daily only; survivorship; flip exit not modelled; the ADX-off signals would be capped by the 20-position limit in practice.
