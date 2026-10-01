@@ -11,10 +11,10 @@ Pick 1–3 items per run. Each needs a written rationale first (see `PROTOCOL.md
    Use `walk_forward.py`; report by market-cap segment.
 4. **Test VWAP + volume filter variations.** The filter stack is where the edge appears to be
    (raw Lorentzian ≈ random). Note IEX volume is a ~3% sample.
-5. **Universe/config alignment check (S&P 500 vs live config).** Walk-forward and `backtest.py` used
-   S&P 500 + IWM benchmark with no market-cap ceiling; live has `MAX_MARKET_CAP=300B`, which drops
-   ~25 mega caps the backtest included. Confirm the backtest's ticker count/limit and either match
-   live to it or measure the difference.
+5. **Universe/config alignment check (S&P 500 vs live config).** Correction 2026-10-01 from the live startup message: Railway overrides the cap band to
+   $10B-$5,000B (code default is $800M-$300B), so mega caps ARE scanned; names under $10B (about 15 S&P 500 names, e.g. NCLH, MOS, AOS) are excluded,
+   while the backtests included them (OOS n ~12, negative PF, too few to judge). Watchlist names CRDO, RIOT, ARWR are not in the S&P 500 and are not scanned.
+   Decide whether to match the backtest (drop the $10B floor) or keep it.
 6. **FINRA daily short-sale volume ratio as a filter (daily bars only).** Free files at
    cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt. Noisy (mostly market-maker hedging); needs ~2 years of
    files and a definition fixed before looking. Not usable on 4h bars. Not now: TRACE (bonds only), ATS weekly
