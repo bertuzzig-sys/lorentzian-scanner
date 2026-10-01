@@ -75,3 +75,15 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Replay of the 10 logged live signals (17-29 Sep) with the live 365-day window: 8/10 reproduce as fresh long flips (FFIV, A, P, DXCM, MAR, TT, CCL, ZBRA); MMM and BIIB do not.
 - Same stocks/dates with 500 or 800 calendar days of history: A and P no longer flip long, FFIV vote 8 -> 4 -> 2. The signal is sensitive to history length.
 - Backtest windows (run 001-005) use 400 bars (~1.6y) per signal; live uses ~250 bars. This is a backtest-vs-live gap; to be tested (windows 250 / 400 / 1000) as a pre-registered run.
+
+## 2026-10-01 — Run 005: portfolio-level variants (ADX filter off, EMA/RSI gates off), daily
+- Pre-registered: research/runs/2026-10-01_portfolio-variants.md. Code: research/run005.py. Portfolio rules as run 004 (5%/position, max 20, 5 random seeds, no costs).
+- OOS (last 12 months), median of 5 seeds [min..max]:
+  - BASE (ADX on, EMA+RSI on):  signals 538, taken 390, avg slots 14.0 · total +6.4% [2.5..6.9] · maxDD -7.2% · Sharpe 0.64 · per-trade WR 51.3 PF 1.21 avg +0.45%
+  - H-A (ADX off):              signals 1181, taken 517, slots 17.3 · +1.9% [0.3..5.1] · maxDD -9.1% · Sharpe 0.20 · PF 1.32 avg +0.70%
+  - H-B (EMA+RSI gates off):    signals 846, taken 455, slots 16.4 · +14.5% [10.4..19.4] · maxDD -6.8% · Sharpe 1.20 · WR 52.8 PF 1.40 avg +0.84%
+  - SPY buy&hold: +15.3%, maxDD -8.9%, Sharpe 1.17
+- Full period median: BASE +53.4% (CAGR 11.3%, DD -12.1%); H-A +61.8% (12.8%, -13.6%); H-B +66.4% (13.6%, -15.5%); SPY +119% (21.7%, -18.8%).
+- Verdict by the pre-registered rule (OOS median >= +2 pts vs BASE, full CAGR > BASE, OOS DD not worse by > 3 pts): H-B PASSES (+8.1 pts OOS, CAGR 13.6 vs 11.3, OOS DD -6.8 vs -7.2). H-A does NOT (OOS +1.9% vs +6.4%).
+- Caveats: one OOS year; wide seed spread (H-B 10.4..19.4); full-period DD is worse for H-B (-15.5 vs -12.1); full period still trails SPY; survivorship, no costs, flip exit not modelled, backtest window 400 bars vs live ~250 (run 006 tests this).
+- Follow-ups: run 006 (history window) now also evaluates the H-B gate set; out-of-universe check (S&P 400) before any live change.
