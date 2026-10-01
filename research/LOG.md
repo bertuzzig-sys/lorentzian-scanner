@@ -96,3 +96,15 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Verdict (rule: all windows OOS PF >= 1.2, avg >= +0.2%, avg span <= 0.3 pts): BASE = WINDOW-SENSITIVE (PF 1.16 at 1000 bars). H-B = ROBUST (PF 1.34-1.41, avg +0.73..+0.85, span 0.12).
 - Live-equivalent window is 250 bars: BASE +9.8% OOS (below SPY), H-B +16.9% OOS (slightly above SPY, lower drawdown). One OOS year; no costs; survivorship; flip exit not modelled.
 - Follow-ups: out-of-universe check (S&P 400) and cost model before any live change; decide whether to propose v11.4 = remove the 50-EMA and RSI 40-70 gates.
+
+## 2026-10-01 — Run 007: S&P 400 generalisation and trading costs (daily, 250-bar window)
+- Pre-registered: research/runs/2026-10-01_sp400-costs.md (committed before the run). Code: research/run007.py. Costs per side: 0.10% (S&P 500), 0.15% (S&P 400), stress 0.25%.
+- Portfolio OOS median total return (gross / base cost / stress cost) vs benchmark:
+  - S&P 500 BASE (EMA+RSI on): +9.8 / +5.9 / +0.3 %; H-B (gates off): +16.9 / +11.8 / +4.5 %; SPY +15.3%
+  - S&P 400 BASE: +3.6 / -1.0 / -4.0 %; H-B: +11.4 / +5.0 / +1.0 %; IJH +11.3%, SPY +15.3%
+- Full period (2022-10..2026-09) at base cost: S&P 500 H-B +58.6% (CAGR 12.2%, maxDD -17.1%, Sharpe 0.98) vs SPY +119% (-18.8%, 1.34); BASE +36.5%. S&P 400 H-B +10.4% (CAGR 2.5%, maxDD -20.3%) vs IJH +68.5% (-24.1%); BASE -5.4%.
+- Per-trade OOS at base cost, H-B: S&P 500 PF 1.25 avg +0.57%; S&P 400 PF 1.19 avg +0.50%.
+- Verdict: H-C (generalises, S&P 400 base cost) SUPPORTED: H-B beats BASE by +6.0 pts OOS (+5.0% vs -1.0%), better CAGR (2.5% vs -1.4%), smaller OOS drawdown (-6.9% vs -9.0%).
+  H-D (survives costs: OOS avg >= +0.2% and PF >= 1.2 on BOTH universes) NOT SUPPORTED by the strict rule: S&P 500 passes (PF 1.25), S&P 400 PF 1.19 (< 1.2), avg +0.50% passes.
+- Reading: removing the EMA/RSI gates is the better variant in both universes, but after costs neither universe beats buy-and-hold over the full period; per-trade edge (~0.5%) is of the same order as costs (0.2-0.3% round trip at base, 0.5% at stress). OOS year: S&P 500 H-B net +11.8% vs SPY +15.3%.
+- Caveats: cost level is an assumption (large caps with a good broker may be nearer 0.02-0.05% per side); one OOS year; survivorship; flip exit not modelled.
