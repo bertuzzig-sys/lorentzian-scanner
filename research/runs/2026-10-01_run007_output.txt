@@ -1,0 +1,99 @@
+== S&P 400
+
+########## SP400 | GROSS (no cost) ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1253  50.8 1.09  0.21     0.10
+BASE (EMA+RSI on)    OOS  374  52.7 1.22  0.53     0.26
+H-B (EMA+RSI off)     IS 2051  52.1 1.20  0.46     0.30
+H-B (EMA+RSI off)    OOS  622  50.5 1.33  0.80     0.10
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    378 |    3.6 [3.2..5.0] | 3.6 | -6.9 | 0.39
+   H-B     626 |   11.4 [6.7..13.3] | 11.5 | -5.8 | 0.94
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+   IJH : {'total %': 11.3, 'CAGR %': 11.3, 'max DD %': -8.8, 'Sharpe': 0.78}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   1627 |   11.8 [10.9..17.0] | 2.8 | -14.9 | 0.31
+   H-B    2673 |   34.9 [26.2..46.7] | 7.8 | -18.6 | 0.67
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+   IJH : {'total %': 68.5, 'CAGR %': 14.0, 'max DD %': -24.1, 'Sharpe': 0.81}
+
+########## SP400 | BASE cost 0.15%/side ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1253  48.2 0.96 -0.09    -0.20
+BASE (EMA+RSI on)    OOS  374  49.7 1.09  0.23    -0.04
+H-B (EMA+RSI off)     IS 2051  50.0 1.06  0.16     0.00
+H-B (EMA+RSI off)    OOS  622  47.7 1.19  0.50    -0.20
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    378 |   -1.0 [-1.5..0.3] | -1.0 | -9.0 | -0.05
+   H-B     626 |    5.0 [0.6..6.8] | 5.1 | -6.9 | 0.46
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+   IJH : {'total %': 11.3, 'CAGR %': 11.3, 'max DD %': -8.8, 'Sharpe': 0.78}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   1627 |   -5.4 [-7.7..-2.1] | -1.4 | -20.3 | -0.07
+   H-B    2673 |   10.4 [2.2..19.9] | 2.5 | -20.3 | 0.26
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+   IJH : {'total %': 68.5, 'CAGR %': 14.0, 'max DD %': -24.1, 'Sharpe': 0.81}
+
+########## SP400 | STRESS cost 0.25%/side ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1253  46.4 0.89 -0.29    -0.40
+BASE (EMA+RSI on)    OOS  374  48.9 1.01  0.03    -0.24
+H-B (EMA+RSI off)     IS 2051  48.4 0.98 -0.04    -0.20
+H-B (EMA+RSI off)    OOS  622  47.1 1.11  0.30    -0.40
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    378 |   -4.0 [-4.5..-2.7] | -4.0 | -10.4 | -0.34
+   H-B     626 |    1.0 [-3.2..2.7] | 1.0 | -8.0 | 0.14
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+   IJH : {'total %': 11.3, 'CAGR %': 11.3, 'max DD %': -8.8, 'Sharpe': 0.78}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   1627 |  -15.4 [-18.3..-13.0] | -4.1 | -24.8 | -0.33
+   H-B    2673 |   -3.0 [-11.0..4.5] | -0.8 | -22.4 | 0.0
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+   IJH : {'total %': 68.5, 'CAGR %': 14.0, 'max DD %': -24.1, 'Sharpe': 0.81}
+
+== S&P 500
+
+########## SP500 | GROSS (no cost) ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1553  55.4 1.38  0.72     0.83
+BASE (EMA+RSI on)    OOS  508  51.2 1.29  0.61     0.16
+H-B (EMA+RSI off)     IS 2579  55.7 1.41  0.77     0.83
+H-B (EMA+RSI off)    OOS  847  51.6 1.35  0.78     0.20
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    512 |    9.8 [8.1..10.5] | 9.8 | -5.9 | 0.91
+   H-B     851 |   16.9 [14.1..24.2] | 17.0 | -6.6 | 1.31
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   2061 |   56.4 [45.3..59.3] | 11.9 | -12.3 | 1.1
+   H-B    3426 |   87.6 [84.9..99.5] | 17.1 | -16.4 | 1.31
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+
+########## SP500 | BASE cost 0.10%/side ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1553  54.2 1.26  0.52     0.63
+BASE (EMA+RSI on)    OOS  508  49.8 1.19  0.41    -0.04
+H-B (EMA+RSI off)     IS 2579  54.1 1.29  0.56     0.63
+H-B (EMA+RSI off)    OOS  847  50.1 1.25  0.57     0.00
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    512 |    5.9 [4.2..6.6] | 5.9 | -7.0 | 0.58
+   H-B     851 |   11.8 [9.1..18.7] | 11.8 | -7.8 | 0.95
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   2061 |   36.5 [26.4..38.5] | 8.1 | -12.8 | 0.78
+   H-B    3426 |   58.6 [56.3..67.6] | 12.2 | -17.1 | 0.98
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+
+########## SP500 | STRESS cost 0.25%/side ##########
+          variant period    n  win%   PF  avg%  median%
+BASE (EMA+RSI on)     IS 1553  52.2 1.10  0.22     0.33
+BASE (EMA+RSI on)    OOS  508  46.7 1.05  0.11    -0.34
+H-B (EMA+RSI off)     IS 2579  52.1 1.13  0.26     0.33
+H-B (EMA+RSI off)    OOS  847  47.3 1.11  0.27    -0.30
+portfolio OOS 2025-10-01->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE    512 |    0.3 [-1.3..1.0] | 0.3 | -9.2 | 0.08
+   H-B     851 |    4.5 [2.0..10.9] | 4.5 | -9.5 | 0.41
+   SPY : {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+portfolio FULL 2022-10-03->2026-09-30 (signals | total% med [min..max] | CAGR% | maxDD% | Sharpe):
+   BASE   2061 |   10.7 [2.5..12.1] | 2.6 | -14.8 | 0.29
+   H-B    3426 |   23.2 [21.5..29.0] | 5.4 | -19.2 | 0.48
+   SPY : {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}

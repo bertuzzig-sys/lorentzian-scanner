@@ -1,0 +1,47 @@
+
+=== IS ===
+                               n  win%   PF  avg%  median%
+BASELINE  ADX on , VWAP on  1491  56.6 1.47  0.85     0.92
+H-1       ADX off, VWAP on  3375  54.5 1.33  0.64     0.55
+H-2       ADX on , VWAP off 1549  56.4 1.45  0.81     0.89
+(info)    ADX off, VWAP off 3509  54.2 1.32  0.62     0.54
+
+=== OOS ===
+                               n  win%   PF  avg%  median%
+BASELINE  ADX on , VWAP on   512  51.6 1.27  0.54     0.21
+H-1       ADX off, VWAP on  1132  51.9 1.32  0.69     0.23
+H-2       ADX on , VWAP off  532  51.3 1.22  0.46     0.17
+(info)    ADX off, VWAP off 1174  52.2 1.31  0.70     0.26
+
+--- BASELINE  ADX on , VWAP on: by segment (IS | OOS) ---
+              n  win%   PF  avg%  median%
+   >200B IS 190  57.4 1.58  1.05     1.17
+  >200B OOS  66  48.5 1.24  0.62    -0.31
+ 50-200B IS 528  56.4 1.30  0.56     0.78
+50-200B OOS 178  56.2 1.53  0.86     0.72
+  10-50B IS 729  56.4 1.53  0.94     0.87
+ 10-50B OOS 256  49.6 1.16  0.35    -0.02
+    <10B IS  44  59.1 2.19  2.01     1.91
+   <10B OOS  12  41.7 0.76 -0.60    -1.56
+
+--- H-1       ADX off, VWAP on: by segment (IS | OOS) ---
+               n  win%   PF  avg%  median%
+   >200B IS  414  55.8 1.55  1.03     0.68
+  >200B OOS  155  55.5 1.64  1.47     0.53
+ 50-200B IS 1191  55.4 1.37  0.70     0.66
+50-200B OOS  404  53.5 1.45  0.90     0.51
+  10-50B IS 1663  54.0 1.26  0.50     0.49
+ 10-50B OOS  546  50.4 1.17  0.39     0.04
+    <10B IS  107  47.7 1.15  0.41    -0.69
+   <10B OOS   27  40.7 0.70 -0.80    -0.90
+
+--- H-2       ADX on , VWAP off: by segment (IS | OOS) ---
+              n  win%   PF  avg%  median%
+   >200B IS 197  56.9 1.56  1.01     1.14
+  >200B OOS  69  47.8 1.19  0.51    -0.33
+ 50-200B IS 551  56.4 1.28  0.53     0.76
+50-200B OOS 186  55.4 1.41  0.71     0.67
+  10-50B IS 757  56.0 1.50  0.90     0.86
+ 10-50B OOS 265  49.8 1.14  0.31     0.00
+    <10B IS  44  59.1 2.19  2.01     1.91
+   <10B OOS  12  41.7 0.76 -0.60    -1.56

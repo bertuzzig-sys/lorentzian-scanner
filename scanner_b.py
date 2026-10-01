@@ -51,6 +51,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger(__name__)
+# httpx logs full request URLs at INFO, which leaks the Telegram bot token into logs
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 MIN_DOLLAR_VOLUME  = 5_000_000  # $5M/day — filters illiquid stocks regardless of share price
 MIN_PRICE          = 5.0
@@ -782,7 +785,7 @@ def run_scan():
 
     scan_started = time.time()
     scan_date = date.today().isoformat()
-    log.info("=== Lorentzian v11.0 scan — %s ===", scan_date)
+    log.info("=== Lorentzian v11.2 scan — %s ===", scan_date)
 
     # ── 1. Load open positions from Sheets ───────────────────────────────────
     open_positions, ws = sheets_logger.get_open_positions()
@@ -1134,7 +1137,7 @@ def run_scan():
 
 
 if __name__ == "__main__":
-    log.info("Lorentzian Scanner V11.0 starting...")
+    log.info("Lorentzian Scanner v11.2 starting...")
     universe_selftest()
     # Boot scan: skip while the US session is open — yfinance would return a
     # PARTIAL daily bar (today's volume so far), which silently breaks the
@@ -1152,14 +1155,6 @@ if __name__ == "__main__":
     schedule.every().day.at(fill_time).do(update_entry_prices)
     log.info("Fill-price update scheduled at %s UTC daily.", fill_time)
 
-    # Prospero free-signal forward-tracker: score daily, summarise Fridays
-    try:
-        from prospero_tracker import update_prospero, prospero_summary
-        schedule.every().day.at("21:30").do(update_prospero)
-        schedule.every().friday.at("21:45").do(prospero_summary)
-        log.info("Prospero tracker scheduled (score 21:30, summary Fri 21:45 UTC).")
-    except Exception as exc:
-        log.warning("Prospero tracker not scheduled: %s", exc)
     log.info("Next scheduled run at %s UTC daily.", schedule_time)
     while True:
         schedule.run_pending()

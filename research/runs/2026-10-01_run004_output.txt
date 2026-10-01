@@ -1,0 +1,24 @@
+
+=== OOS (last 12 months): 2025-10-01 -> 2026-09-30 | signals 540 ===
+strategy, 5 random seeds (same-day conflicts):
+ total %  CAGR %  max DD %  Sharpe
+     6.3     6.3      -7.5    0.63
+     2.3     2.3      -8.9    0.27
+     7.5     7.5      -8.1    0.74
+     6.8     6.9      -7.2    0.68
+     6.5     6.5      -7.3    0.65
+trades taken: 385-392 of 540 signals | avg open positions 14.0 of 20
+SPY buy&hold: {'total %': 15.3, 'CAGR %': 15.4, 'max DD %': -8.9, 'Sharpe': 1.17}
+
+=== FULL (in-sample + OOS): 2022-10-03 -> 2026-09-30 | signals 2086 ===
+strategy, 5 random seeds (same-day conflicts):
+ total %  CAGR %  max DD %  Sharpe
+    54.4    11.5     -12.5    1.08
+    56.8    11.9     -12.5    1.12
+    51.2    10.9     -12.5    1.04
+    60.8    12.6     -11.7    1.17
+    49.1    10.5     -12.1    1.00
+trades taken: 1416-1427 of 2086 signals | avg open positions 14.0 of 20
+SPY buy&hold: {'total %': 119.1, 'CAGR %': 21.7, 'max DD %': -18.8, 'Sharpe': 1.34}
+
+Per-trade (all signals, no portfolio limits): {'': 'all', 'n': 2086, 'win%': 55.1, 'PF': 1.38, 'avg%': 0.72, 'median%': 0.67}

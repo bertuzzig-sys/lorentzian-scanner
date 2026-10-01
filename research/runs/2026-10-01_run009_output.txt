@@ -1,0 +1,25 @@
+
+===== OOS: 2025-10-01 -> 2026-09-29 =====
+                 strategy  cost  total %  CAGR %  max DD %  Sharpe  invested%  switches  rebalances  trades  slots  seed range
+           SPY buy & hold     -     16.8    16.9      -8.1    1.30        NaN       NaN         NaN     NaN    NaN         NaN
+S1 index trend (SPY>200d) gross     13.9    14.0      -5.7    1.18       87.0      19.0         NaN     NaN    NaN         NaN
+       S2 momentum top-20 gross     92.8    93.2     -30.3    1.52        NaN       NaN        49.0     NaN    NaN         NaN
+       S3 RSI(2) pullback gross      1.3     1.3     -15.1    0.16        NaN       NaN         NaN  1039.0   19.3   -9.1..8.7
+S1 index trend (SPY>200d)   net     13.9    13.9      -5.7    1.18       87.0      19.0         NaN     NaN    NaN         NaN
+       S2 momentum top-20   net     91.9    92.4     -30.4    1.51        NaN       NaN        49.0     NaN    NaN         NaN
+       S3 RSI(2) pullback   net     -8.6    -8.7     -18.0   -0.50        NaN       NaN         NaN  1039.0   19.3 -17.8..-1.9
+
+===== FULL: 2022-10-03 -> 2026-09-29 =====
+                 strategy  cost  total %  CAGR %  max DD %  Sharpe  invested%  switches  rebalances  trades  slots  seed range
+           SPY buy & hold     -    123.6    22.3     -19.8    1.34        NaN       NaN         NaN     NaN    NaN         NaN
+S1 index trend (SPY>200d) gross     65.9    13.5     -11.0    1.14       87.0      19.0         NaN     NaN    NaN         NaN
+       S2 momentum top-20 gross    686.4    67.6     -38.4    1.50        NaN       NaN        49.0     NaN    NaN         NaN
+       S3 RSI(2) pullback gross     93.5    18.0     -17.6    1.17        NaN       NaN         NaN  3798.0   17.4 91.7..103.4
+S1 index trend (SPY>200d)   net     65.3    13.4     -11.0    1.13       87.0      19.0         NaN     NaN    NaN         NaN
+       S2 momentum top-20   net    668.4    66.7     -38.4    1.49        NaN       NaN        49.0     NaN    NaN         NaN
+       S3 RSI(2) pullback   net     32.5     7.3     -19.7    0.54        NaN       NaN         NaN  3798.0   17.4  31.0..39.6
+
+--- Addendum (post hoc): momentum checks ---
+Null controls (net of cost, monthly rebalance): ALL eligible equal-weight FULL +115.4% (CAGR 21.2%, DD -18.8%, Sharpe 1.30), RANDOM 20 FULL +79.8% (15.8%, -21.8%, 0.95); OOS: all +15.5%, random +13.2%, S2 +91.9%.
+Outliers: only 4 single-stock open-to-open moves beyond +-50% since 2022-10 (CVNA, BE, ECHO, MRNA); clipping daily stock returns at +-15% still gives FULL +568% (so not a data glitch).
+Look-ahead in the universe: 69 of 503 current members joined the index after 2022-10-03. Counting a stock only from its "Date added": momentum FULL +232.6% (CAGR 35.1%, DD -29.0%, Sharpe 1.08), OOS +65.0% (today's list: +668.4% / +91.9%).

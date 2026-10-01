@@ -1,0 +1,56 @@
+
+=== IS ===
+                         n  win%   PF  avg%  median%
+     BASE (IWM, live) 1210  55.7 1.47  0.86     0.75
+         H-A (no IWM) 1488  56.5 1.47  0.85     0.91
+H-B (no IWM + hammer)    7  57.1 0.94 -0.11     1.71
+
+=== OOS ===
+                        n  win%   PF  avg%  median%
+     BASE (IWM, live) 440  51.6 1.25  0.52     0.27
+         H-A (no IWM) 514  51.8 1.27  0.54     0.24
+H-B (no IWM + hammer)   2  50.0 0.23 -1.21    -1.21
+
+=== ALL ===
+                         n  win%   PF  avg%  median%
+     BASE (IWM, live) 1650  54.6 1.40  0.77     0.62
+         H-A (no IWM) 2002  55.3 1.41  0.77     0.70
+H-B (no IWM + hammer)    9  55.6 0.81 -0.36     0.71
+
+--- BASE (IWM, live): by market-cap segment (IS | OOS) ---
+              n  win%   PF  avg%  median%
+   >200B IS 157  56.1 1.60  1.08     1.03
+  >200B OOS  61  49.2 1.28  0.72    -0.33
+ 50-200B IS 420  55.7 1.30  0.56     0.66
+50-200B OOS 149  56.4 1.43  0.70     0.72
+  10-50B IS 594  55.4 1.51  0.91     0.72
+ 10-50B OOS 219  49.3 1.17  0.38    -0.04
+    <10B IS  39  59.0 2.39  2.36     2.26
+   <10B OOS  11  45.5 0.81 -0.47    -1.15
+
+--- H-A (no IWM): by market-cap segment (IS | OOS) ---
+              n  win%   PF  avg%  median%
+   >200B IS 190  57.4 1.58  1.05     1.17
+  >200B OOS  66  48.5 1.26  0.66    -0.31
+ 50-200B IS 530  56.6 1.30  0.56     0.82
+50-200B OOS 180  56.1 1.55  0.88     0.76
+  10-50B IS 724  56.1 1.52  0.93     0.86
+ 10-50B OOS 256  50.0 1.15  0.33     0.03
+    <10B IS  44  59.1 2.19  2.01     1.91
+   <10B OOS  12  41.7 0.76 -0.60    -1.56
+
+--- H-B (no IWM + hammer): by market-cap segment (IS | OOS) ---
+             n  win%    PF  avg%  median%
+   >200B IS  2  50.0  0.76 -0.65    -0.65
+  >200B OOS  0   NaN   NaN   NaN      NaN
+ 50-200B IS  3  66.7 12.08  2.26     2.99
+50-200B OOS  1 100.0   inf  0.71     0.71
+  10-50B IS  2  50.0  0.21 -3.14    -3.14
+ 10-50B OOS  1   0.0  0.00 -3.14    -3.14
+    <10B IS  0   NaN   NaN   NaN      NaN
+   <10B OOS  0   NaN   NaN   NaN      NaN
+
+--- BASE by regime (OOS) ---
+       n  win%   PF  avg%  median%
+BULL 358  52.0 1.24  0.51     0.27
+BEAR  82  50.0 1.29  0.57     0.14
