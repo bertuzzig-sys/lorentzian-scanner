@@ -126,3 +126,10 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
   - S3 RSI(2) pullback (RSI2<10 above 200d, 20 slots): FULL +32.5% (CAGR 7.3%, DD -19.7%, Sharpe 0.54), OOS -8.6%. Gross FULL +93.5%, OOS +1.3%. Label: NEITHER; costs wipe out most of it (3798 trades).
 - Verdict: no simple strategy beat holding SPY credibly. S2 cannot be judged without historical index membership (including removed names).
 - Follow-ups: obtain point-in-time membership (e.g. a data vendor) before trusting any cross-sectional result; the same universe look-ahead also affects the Lorentzian runs (smaller effect for per-trade signal tests).
+
+## 2026-10-01 — Run 010: capitulation rebound (TTAN-style), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_capitulation-rebound.md (committed before the run). Code: research/run010.py. Lorentzian = AI Edge causal port, TradingView settings. Exit 10% stop / 20-day hold, cost 0.15%/side.
+- State-days 30,529 (trigger days 920). Net, per trade (avg % / PF / n): TRIGGER IS +2.50 / 1.63 / 689, OOS +2.65 / 1.58 / 231. NULL (state, no trigger) IS +2.71 / 1.67 / 22,109, OOS +1.71 / 1.34 / 7,500.
+- Verdict: EDGE rule met on paper (OOS n 231, avg +2.65%, PF 1.58). Trigger adds value: NOT supported (OOS +0.94 vs null, but IS -0.21: opposite signs). The crash-and-rebound STATE itself averages +1.7..+2.7% per 20-day trade; the Lorentzian trigger is not what produces it.
+- Caveat (large): survivorship. Crashed stocks that kept falling are gone from today's index lists, so rebounds after crashes are overstated; the null shares the bias, so absolute numbers are not credible, and the trigger-vs-null comparison is the usable one.
+- Screen on the last complete bar (2026-09-30), descriptive only: fresh Lorentzian long inside the state: STAA (long 2026-09-29, $22.61, 19% off the low, -22% vs pre-crash). In the state without a fresh signal (watchlist): PLAB, ON, DKS, FN, DAN, ESI, VCYT, AMKR, CBOE, VIAV, BE, BURL.
