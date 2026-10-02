@@ -142,3 +142,10 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
 - Verdicts: H1 (volume adds to the signal) NOT SUPPORTED: OOS -1.16 vs SIG-only, IS +0.26 (opposite signs). H2 (signal adds to volume) NOT SUPPORTED: +0.10 OOS. H3 (beats SPY) NOT SUPPORTED: OOS +9.0% < +16.8%, full Sharpe 0.56 < 1.34.
 - Reading: signals during volume expansion did WORSE than signals without it in the last year; the GRAIL-style quiet base with a Lorentzian long lost money (-0.61% per trade OOS). The Lorentzian signal alone on the S&P 1500 beat random days (+1.56 vs +0.83 OOS, +1.02 vs +0.84 IS), a small edge, but not versus SPY as a portfolio.
 - Caveats: survivorship (today's index lists), one OOS year, daily bars, no live flip exit.
+
+## 2026-10-01 — Run 011: quiet accumulation then explosion (GRAIL-style), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_quiet-accumulation.md (committed before the run). Code: research/run011.py. Exit 10% stop / 20-day hold, cost 0.15%/side.
+- Net, per trade (avg % IS / OOS; n OOS): TRIGGER (quiet, volume building, Lorentzian long) -0.09 / -0.48 (151), PF 0.98 / 0.87; NULL-A (state, no trigger) +0.38 / +0.62 (4428); NULL-B (random 5% of all liquid days) +0.84 / +0.83 (16782).
+- Explosion rate (max close >= +20% within 20 days): TRIGGER 5.6% IS / 2.6% OOS; NULL-A 3.0 / 3.5; random days 5.8 / 8.3. Share of trades losing >= 10% (net): TRIGGER 25.7 / 24.5; random 21.8 / 26.7.
+- Verdicts: EDGE NOT SUPPORTED (OOS avg -0.48% < +0.5%, PF 0.87). Trigger adds value NOT SUPPORTED (OOS -1.10 vs NULL-A). State adds value NOT SUPPORTED (NULL-A below random days: -0.46 IS, -0.21 OOS).
+- Reading: a quiet, slowly rising stock with building volume is LESS likely to explode than a random stock-day, and the Lorentzian long inside it lost money. The GRAIL example is a hindsight pick.

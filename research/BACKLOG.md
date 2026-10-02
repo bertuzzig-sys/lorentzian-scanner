@@ -22,3 +22,7 @@ Pick 1–3 items per run. Each needs a written rationale first (see `PROTOCOL.md
 7. **4h rebuild.** Live scanner and all runs so far are DAILY; Gianluca trades the 4h TradingView signal.
    Blocked on matching TradingView first (see LOG 2026-09-30 F5 check). Then port filters/exits to 4h (defined first),
    re-run IS/OOS, then re-test the volume-spike idea on 4h.
+8. **Price-action rules of thumb (new project, daily proxies first).** Rules pasted 2026-10-02 (first pullback after a new high, strong/high-volume close -> next-day follow-through,
+   big gaps continue, prior-day high/low as pivots, range contraction then expansion). Test at most 3 daily-bar hypotheses on SPY and the S&P 500 with random-entry nulls, costs and a
+   held-out year; intraday rules (first/last hour, morning reversals) need paid intraday history. Separate project folder, same protocol. Not started.
+9. **Bear-market stress test (run 013)** running; survivorship-free data (index membership + delisted prices) still the main open gap.
