@@ -72,3 +72,13 @@ the TradingView chart uses ADX filter OFF, regime threshold −0.1, RSI(9) as fi
 - Harness scripts: `research/run001.py` … `run009b_null.py`, `research/f5_4h_check.py`, `research/tv_export/` (Pine script).
 - To re-run: create a Python venv with `advanced-ta`, `yfinance`, `pandas`, `numpy`, `lxml`, `html5lib`, `beautifulsoup4`, `requests`, `openpyxl`; set `SSL_CERT_FILE` to certifi's bundle; run e.g.
   `python research/run007.py --universe sp500 --workers 4 --out DIR` (max 4 workers on this Mac). Raw trade files live only in the temporary scratch folder and are not kept; the outputs and numbers are in `research/runs/`.
+
+
+## Update 2 Oct 2026 (runs 010–013; branch `research/capitulation-rebound`)
+
+- **TTAN-style crash and rebound (run 010):** the setup itself looks profitable but is inflated by survivorship; the Lorentzian buy adds no consistent value.
+- **GRAIL-style quiet base with building volume (run 011):** not supported. A quiet base is less likely to explode than a random day; the Lorentzian buy inside it lost money (−0.48% per trade last year).
+- **Unusual volume as a filter (run 012):** made Lorentzian signals worse (+0.40% vs +1.56% per trade last year). Portfolio +9.0% vs SPY +16.8% last year.
+- **Bear markets 2005–2026 (run 013):** the scanner lost money in 2008 (−19.5%) and 2020 (−8.9%) and 2022 (−13.3%), less than SPY, mostly because it is not always invested. Over 21 years it compounded +43% vs SPY +842% (survivors-only data, which flatters it). The version without the EMA/RSI gates (v11.4 idea) was worse over the long run (+21%). The 2022–2026 numbers were a favourable window.
+- **Bottom line is stronger:** nothing tested beats holding SPY; the long-run per-trade edge after costs is about +0.2% to +0.3%.
+- **Data note:** FMP free plan refused index membership history, delisted prices and 4-hour bars; the free long daily history adds nothing over yfinance.
