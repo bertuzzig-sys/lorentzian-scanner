@@ -126,3 +126,35 @@ Append-only. One entry per test, including failures. Template is in `PROTOCOL.md
   - S3 RSI(2) pullback (RSI2<10 above 200d, 20 slots): FULL +32.5% (CAGR 7.3%, DD -19.7%, Sharpe 0.54), OOS -8.6%. Gross FULL +93.5%, OOS +1.3%. Label: NEITHER; costs wipe out most of it (3798 trades).
 - Verdict: no simple strategy beat holding SPY credibly. S2 cannot be judged without historical index membership (including removed names).
 - Follow-ups: obtain point-in-time membership (e.g. a data vendor) before trusting any cross-sectional result; the same universe look-ahead also affects the Lorentzian runs (smaller effect for per-trade signal tests).
+
+## 2026-10-01 — Run 010: capitulation rebound (TTAN-style), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_capitulation-rebound.md (committed before the run). Code: research/run010.py. Lorentzian = AI Edge causal port, TradingView settings. Exit 10% stop / 20-day hold, cost 0.15%/side.
+- State-days 30,529 (trigger days 920). Net, per trade (avg % / PF / n): TRIGGER IS +2.50 / 1.63 / 689, OOS +2.65 / 1.58 / 231. NULL (state, no trigger) IS +2.71 / 1.67 / 22,109, OOS +1.71 / 1.34 / 7,500.
+- Verdict: EDGE rule met on paper (OOS n 231, avg +2.65%, PF 1.58). Trigger adds value: NOT supported (OOS +0.94 vs null, but IS -0.21: opposite signs). The crash-and-rebound STATE itself averages +1.7..+2.7% per 20-day trade; the Lorentzian trigger is not what produces it.
+- Caveat (large): survivorship. Crashed stocks that kept falling are gone from today's index lists, so rebounds after crashes are overstated; the null shares the bias, so absolute numbers are not credible, and the trigger-vs-null comparison is the usable one.
+- Screen on the last complete bar (2026-09-30), descriptive only: fresh Lorentzian long inside the state: STAA (long 2026-09-29, $22.61, 19% off the low, -22% vs pre-crash). In the state without a fresh signal (watchlist): PLAB, ON, DKS, FN, DAN, ESI, VCYT, AMKR, CBOE, VIAV, BE, BURL.
+
+## 2026-10-01 — Run 012: unusual volume + Lorentzian long (common thread of TTAN and GRAIL), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_volume-expansion.md (committed before the run). Code: research/run012.py. Exit 10% stop / 20-day hold, cost 0.15%/side, TradingView settings, causal AI Edge port.
+- Per trade, net (avg % IS / OOS; n OOS): SIG+VE +1.28 / +0.40 (712); SIG-only +1.02 / +1.56 (5019); VE-only +1.08 / +0.30 (2365); ALL random liquid days +0.84 / +0.83 (16782).
+- SIG+VE split, net OOS: after a crash +0.48 (n 31); quiet base -0.61 (n 151, IS -0.05); other +0.68 (n 530).
+- Portfolio (20 slots, 5 seeds): SIG+VE OOS +9.0% [3.7..20.3], maxDD -8.7%, full period +32.3% (Sharpe 0.56); all Lorentzian signals OOS +7.4%, full +35.0%; SPY OOS +16.8%, full +123.6% (Sharpe 1.34).
+- Verdicts: H1 (volume adds to the signal) NOT SUPPORTED: OOS -1.16 vs SIG-only, IS +0.26 (opposite signs). H2 (signal adds to volume) NOT SUPPORTED: +0.10 OOS. H3 (beats SPY) NOT SUPPORTED: OOS +9.0% < +16.8%, full Sharpe 0.56 < 1.34.
+- Reading: signals during volume expansion did WORSE than signals without it in the last year; the GRAIL-style quiet base with a Lorentzian long lost money (-0.61% per trade OOS). The Lorentzian signal alone on the S&P 1500 beat random days (+1.56 vs +0.83 OOS, +1.02 vs +0.84 IS), a small edge, but not versus SPY as a portfolio.
+- Caveats: survivorship (today's index lists), one OOS year, daily bars, no live flip exit.
+
+## 2026-10-01 — Run 011: quiet accumulation then explosion (GRAIL-style), S&P 1500, daily
+- Pre-registered: research/runs/2026-10-01_quiet-accumulation.md (committed before the run). Code: research/run011.py. Exit 10% stop / 20-day hold, cost 0.15%/side.
+- Net, per trade (avg % IS / OOS; n OOS): TRIGGER (quiet, volume building, Lorentzian long) -0.09 / -0.48 (151), PF 0.98 / 0.87; NULL-A (state, no trigger) +0.38 / +0.62 (4428); NULL-B (random 5% of all liquid days) +0.84 / +0.83 (16782).
+- Explosion rate (max close >= +20% within 20 days): TRIGGER 5.6% IS / 2.6% OOS; NULL-A 3.0 / 3.5; random days 5.8 / 8.3. Share of trades losing >= 10% (net): TRIGGER 25.7 / 24.5; random 21.8 / 26.7.
+- Verdicts: EDGE NOT SUPPORTED (OOS avg -0.48% < +0.5%, PF 0.87). Trigger adds value NOT SUPPORTED (OOS -1.10 vs NULL-A). State adds value NOT SUPPORTED (NULL-A below random days: -0.46 IS, -0.21 OOS).
+- Reading: a quiet, slowly rising stock with building volume is LESS likely to explode than a random stock-day, and the Lorentzian long inside it lost money. The GRAIL example is a hindsight pick.
+
+## 2026-10-02 — Run 013: bear-market stress test 2005–2026 (fixed half of today's S&P 500, 250-bar window, cost 0.10%/side)
+- Pre-registered: research/runs/2026-10-01_bear-markets.md (committed before the run). Code: research/run013.py. Frozen config: ADX on, vote >= 6, no IWM/VWAP, 8% stop / 10-day hold, 20 slots 5% each, 3 seeds.
+- Per trade, net, ALL 2005–2026: BASE n 4978, win 53.0%, PF 1.15, avg +0.28%; H-B n 8125, win 52.6%, PF 1.09, avg +0.18%. Years with negative average per trade: BASE 2007 -1.05, 2008 -1.61, 2011 -0.60, 2015 -0.66, 2018 -0.73, 2020 -0.53, 2022 -0.12; H-B 2007 -1.04, 2008 -2.09, 2011 -1.01, 2015 -0.77, 2018 -0.78, 2020 -0.85, 2022 -0.46.
+- Bear windows (strategy return | max DD vs SPY): BASE 2008 -19.5% | -19.5% vs SPY -55.2%; 2020 -8.9% | -9.0% vs -33.7%; 2022 -13.3% | -13.3% vs -24.5%. H-B 2008 -26.1% | -26.2%; 2020 -8.8% | -8.8%; 2022 -4.0% | -4.2%.
+- Whole period 2005–2026: BASE +43% (max DD -27.9%) vs SPY +842% (-55.2%); H-B +21% (-33.6%). Calendar years: BASE beat SPY only in 2007, 2008 (less loss), 2022 (less loss) and 2005; trailed in every strong year.
+- Verdict by the pre-registered rule: both variants "SURVIVE" all three windows (lose less than SPY, smaller drawdown), but the pre-registered caution applies: they LOST money in each window (per-trade averages negative in 2008, 2020, and slightly in 2022) and the "survival" mostly reflects partial cash/exposure (~70% invested), not a profit. The stricter reading (made money per trade in the bad years): NOT met.
+- Reading: over 21 years the scanner earned about +0.2..+0.3% per trade after costs and compounded to only +43% (about 2% a year) vs SPY +842%; H-B (the 'better' variant in 2022-2026) is worse than BASE over the long run (+21% vs +43%, deeper 2008 loss). The 2022-2026 results were a favourable window. The H-B / v11.4 idea is not supported over the long history.
+- Caveats: survivors-only list flatters every year, 2008 most; half the universe; no flip exit; costs assumed. A pass would be weak evidence; this fail-to-beat-SPY is strong evidence.

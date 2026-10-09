@@ -1,0 +1,27 @@
+// Volume-expansion helper for TradingView's Pine Screener (untested in TradingView: if the editor shows an error, send it back)
+// Plots numbers you can filter on. Works on any chart timeframe because it asks for weekly and daily data explicitly.
+//@version=6
+indicator("Volume expansion helper", overlay = false)
+
+// WEEKLY: average volume of the last 4 weeks vs the 12 weeks before them
+wkRatio = request.security(syminfo.tickerid, "W", ta.sma(volume, 4) / ta.sma(volume[4], 12))
+
+// DAILY (same definition as research run 011/012): last 10 days vs the 60 days before them
+dRatio = request.security(syminfo.tickerid, "D", ta.sma(volume, 10) / ta.sma(volume[10], 60))
+
+// DAILY: biggest single-day volume spike in the last 10 days, as a multiple of its prior 20-day average
+spike = request.security(syminfo.tickerid, "D", ta.highest(volume / ta.sma(volume, 20)[1], 10))
+
+// DAILY: price quiet and slowly rising (20-day return in %, 20-day range of closes in % of the mean)
+ret20 = request.security(syminfo.tickerid, "D", (close / close[20] - 1) * 100)
+rng20 = request.security(syminfo.tickerid, "D", (ta.highest(close, 20) - ta.lowest(close, 20)) / ta.sma(close, 20) * 100)
+
+// 1 when volume is expanding by the research definition, 0 otherwise
+ve = (dRatio >= 1.5 or spike >= 3) ? 1 : 0
+
+plot(wkRatio, "WeekVolRatio (4w vs prior 12w)")
+plot(dRatio, "DayVolRatio (10d vs prior 60d)")
+plot(spike, "MaxSpike10d (x normal)")
+plot(ret20, "Ret20d %")
+plot(rng20, "Range20d %")
+plot(ve, "VolumeExpansion 1/0")
